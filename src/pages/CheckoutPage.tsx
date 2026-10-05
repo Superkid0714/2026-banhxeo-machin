@@ -17,7 +17,7 @@ export function CheckoutPage({ step, navigation }: { step: CheckoutStep; navigat
   const frame = step === 'notification' ? frames.notification[draft.notificationMethod ?? 'unselected'] : step === 'phone' ? frames.phone[error ? 'invalid' : 'valid'] : step === 'consent' ? frames.consent[draft.consent ? 'checked' : 'unchecked'] : submission === 'submitting' ? frames.review.submitting : frames.review[draft.notificationMethod ?? 'orderNumber']
   const onSubmit = async () => { const order = await submit(); if (order) navigation.navigate(`/orders/${order.id}`, true) }
   return <FrameLayout frame={frame}>
-    <CheckoutHeader review={step === 'review'} locked={submission === 'submitting' || pending} onBack={() => navigation.back(step === 'notification' ? '/' : '/checkout?step=notification')} />
+    <CheckoutHeader review={step === 'review'} locked={submission === 'submitting' || pending} onBack={() => navigation.back('/usage')} />
     {step === 'notification' && <NotificationChoice onNext={() => go('phone')} />}
     {step === 'phone' && <PhoneNumberEntry error={error} onValidate={() => setErrorPhone(phoneValid ? null : draft.phone)} onContinue={() => { if (phoneValid) go('consent') }} />}
     {step === 'consent' && <PrivacyConsent onContinue={() => { if (draft.consent) go('review') }} />}
