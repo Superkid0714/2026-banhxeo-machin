@@ -7,27 +7,19 @@ import { HomeHeader } from '../components/layout/HomeHeader'
 import { ActionButton } from '../components/ActionButton'
 import { QuantityStepper } from '../components/QuantityStepper'
 
-export function OrderHomePage({ availability, onStart }: { availability: Availability; onStart: () => void }) {
+export function OrderHomePage({ availability, onStart, onReservation }: { availability: Availability; onStart: () => void; onReservation: () => void }) {
   const { draft, update } = useOrderDraft()
   const unavailable = availability !== 'available'
   const total = won(PRODUCT.unitPrice * draft.quantity)
   return <FrameLayout frame={unavailable ? frames.home.unavailable : frames.home.available}>
     <HomeHeader availability={availability} />
-    <main className="flex flex-1 items-start gap-[40px] p-[32px]">
-      <figure className="flex w-[656px] shrink-0 flex-col gap-[16px]">
-        <img src="/assets/banh-xeo.png" alt={PRODUCT.name} width="656" height="596" className="h-[596px] w-[656px] rounded-[8px] object-cover" />
-        <figcaption className="text-[16px] text-muted">바삭하게 구워, 따뜻하게 전해드려요.</figcaption>
-      </figure>
-      <section aria-labelledby="menu-name" className="flex min-w-0 flex-1 self-stretch flex-col gap-[24px]">
-        <p className="text-[16px] font-bold text-muted">TODAY'S MENU</p>
-        <h1 id="menu-name" className="text-[36px] font-bold">{PRODUCT.name}</h1>
-        <p className="text-[32px] font-bold">{won(PRODUCT.unitPrice)}</p>
-        <p className="text-[20px] text-muted">매콤한 불닭과 고소한 치즈를 넣은 바삭한 반쎄오.</p>
-        {unavailable && <div className="flex flex-col items-start gap-[8px]"><span className="rounded-[4px] bg-disabled px-[12px] py-[6px] text-[16px] font-bold">SOLD OUT</span><p className="text-[19px]">오늘 준비한 수량이 모두 판매되었습니다.</p></div>}
-        <div className="flex items-center justify-between"><p className="text-[20px] font-bold">수량</p><QuantityStepper value={draft.quantity} onChange={quantity => update({ quantity })} disabled={unavailable} /></div>
-        <div className="h-px shrink-0 bg-line" />
-        <div className="flex items-center justify-between"><p className="text-[20px]">총 주문금액</p><output aria-live="polite" className="text-[32px] font-bold">{total}</output></div>
-        <div className="flex flex-1 flex-col justify-end gap-[16px]"><ActionButton variant="order" disabled={unavailable} className="w-full" onClick={onStart}>주문하기 · {total}</ActionButton><p className="text-center text-[16px] text-muted">결제는 주문 후 부스에서 진행됩니다.</p></div>
+    <main className="flex flex-1 items-stretch gap-[40px] px-[40px] py-[20px]">
+      <figure className="relative min-h-[628px] min-w-0 flex-1 overflow-hidden rounded-[12px] bg-[#560909]"><img src="/assets/banhxeo-poster.png" alt={PRODUCT.name} className="absolute h-full w-full object-contain"/>{unavailable&&<div className="absolute inset-0 flex items-center justify-center bg-black/35 text-[64px] font-bold text-white">SOLD OUT</div>}</figure>
+      <section aria-labelledby="menu-name" className="flex min-w-0 flex-1 flex-col">
+        <div className="flex flex-col gap-[10px] rounded-[10px] border border-line bg-white px-[20px] py-[16px]"><p className="text-[12px] font-bold text-muted">TODAY'S MENU</p><h1 id="menu-name" className="text-[32px] font-bold">{PRODUCT.name}</h1><p className="text-[16px] leading-[1.5] text-muted">매콤한 불닭과 고소한 치즈를 넣은 바삭한 반쎄오.</p><p className="text-[36px] font-bold">{won(PRODUCT.unitPrice)}</p></div>
+        <div className="flex h-[104px] items-center justify-between border border-line bg-white px-[20px] py-[16px]"><p className="text-[20px] font-bold">수량</p><QuantityStepper value={draft.quantity} onChange={quantity => update({ quantity })} disabled={unavailable}/></div>
+        <div className="flex h-[77px] items-center justify-between border border-line bg-white px-[20px] py-[16px]"><p className="text-[18px] text-muted">총 주문금액</p><output aria-live="polite" className="text-[36px] font-bold">{total}</output></div>
+        <div className="flex flex-1 flex-col justify-end gap-[12px]"><ActionButton variant="order" disabled={unavailable} className="w-full !text-[24px]" onClick={onStart}>{unavailable?'현장 주문을 잠시 받지 않습니다':`주문하기 · ${total}`}</ActionButton><ActionButton variant="secondary" height={48} disabled={unavailable} className="w-full border-2 !text-muted" onClick={onReservation}>사전 예약 주문 접수하기</ActionButton><div className="pt-[8px] text-center text-[13px] text-[#868b94]"><p>결제는 주문 후 부스에서 진행됩니다.</p><p className="mt-[4px] font-bold text-muted">📍 후문 일대 15번 부스 · 17:30 ~ 22:30</p></div></div>
       </section>
     </main>
   </FrameLayout>
