@@ -6,7 +6,7 @@ import { recoverSubmission } from './recoverSubmission'
 function restore(): OrderDraft {
   try {
     const value = JSON.parse(sessionStorage.getItem('order-draft') || 'null') as OrderDraft | null
-    if (value && Number.isSafeInteger(value.quantity) && value.quantity > 0 && ['sms', 'orderNumber', null].includes(value.notificationMethod) && typeof value.phone === 'string' && /^\d{0,11}$/.test(value.phone) && typeof value.consent === 'boolean') return value
+    if (value && Number.isSafeInteger(value.quantity) && value.quantity > 0 && ['sms', 'orderNumber', null].includes(value.notificationMethod) && typeof value.phone === 'string' && /^\d{0,11}$/.test(value.phone) && typeof value.consent === 'boolean') return { ...value, notificationMethod: 'sms' }
   } catch { /* Invalid storage starts a new draft. */ }
   return emptyDraft()
 }
@@ -49,7 +49,7 @@ function useDraftController() {
     // Synchronous ref guard also blocks clicks before the next React render.
     if (locked.current) return null
     let payload: SubmissionPayload
-    try { payload = payloadRef.current ?? snapshot(draftRef.current, crypto.randomUUID()) } catch { return null }
+    try { payload = payloadRef.current ?? snapshot({ ...draftRef.current, notificationMethod: 'sms' }, crypto.randomUUID()) } catch { return null }
     payloadRef.current = payload
     locked.current = true
     setSubmission('submitting')
