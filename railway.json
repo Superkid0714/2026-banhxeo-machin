@@ -5,7 +5,7 @@
     "buildCommand": "npm run build"
   },
   "deploy": {
-    "startCommand": "npm start",
+    "startCommand": "node dist-server/start.mjs",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 60,
     "numReplicas": 1,

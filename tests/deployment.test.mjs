@@ -11,7 +11,7 @@ test('deployment server serves SPA routes, assets and the order API', { timeout:
   const port = probe.address().port
   await new Promise(resolve => probe.close(resolve))
   const child = spawn(process.execPath, ['dist-server/start.mjs'], {
-    env: { ...process.env, PORT: String(port), DEMO_AVAILABILITY: 'available' },
+    env: { ...process.env, ORDER_API_KEY: '', PORT: String(port), DEMO_AVAILABILITY: 'available', ORDER_DB_PATH: ':memory:' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let errors = ''
@@ -24,7 +24,7 @@ test('deployment server serves SPA routes, assets and the order API', { timeout:
     ])
     const base = `http://127.0.0.1:${port}`
     assert.deepEqual(await (await fetch(`${base}/health`)).json(), { status: 'ok' })
-    for (const route of ['/', '/checkout?step=review', '/orders/example']) {
+    for (const route of ['/', '/usage', '/reservation', '/checkout?step=review', '/orders/example']) {
       const response = await fetch(`${base}${route}`)
       assert.equal(response.status, 200)
       assert.match(response.headers.get('content-type'), /text\/html/)
@@ -35,6 +35,9 @@ test('deployment server serves SPA routes, assets and the order API', { timeout:
     assert.equal(asset.headers.get('content-type'), 'image/png')
     assert.equal((await fetch(`${base}/assets/missing.js`)).status, 404)
     assert.equal((await fetch(`${base}/api/missing`)).status, 404)
+    const unlinked = await fetch(`${base}/api/reservations/1027`)
+    assert.equal(unlinked.status,503)
+    assert.deepEqual(await unlinked.json(),{error:'RESERVATION_LOOKUP_NOT_CONFIGURED'})
     assert.deepEqual(await (await fetch(`${base}/api/availability`)).json(), { availability: 'available' })
     const apiEnvironment = { ...process.env, TEST_API_URL: base }
     delete apiEnvironment.NODE_TEST_CONTEXT

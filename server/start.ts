@@ -8,6 +8,7 @@ const root = fileURLToPath(new URL('../dist/', import.meta.url))
 const port = Number(process.env.PORT ?? 3000)
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid PORT')
 await stat(resolve(root, 'index.html'))
+process.env.ORDER_DB_PATH ??= resolve(process.env.RAILWAY_VOLUME_MOUNT_PATH ?? 'data', 'orders.sqlite')
 const api = createOrderMiddleware()
 const mime: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -35,7 +36,7 @@ async function serve(req: IncomingMessage, res: ServerResponse) {
     if (!(await stat(file)).isFile()) throw new Error('Not a file')
   } catch {
     // Only application routes fall back to HTML; missing assets stay 404.
-    if (pathname === '/' || pathname === '/checkout' || /^\/orders\/[^/]+$/.test(pathname)) {
+    if (['/','/admin','/checkout','/usage','/reservation'].includes(pathname) || /^\/orders\/[^/]+$/.test(pathname)) {
       file = resolve(root, 'index.html')
     } else { res.writeHead(404); res.end(); return }
   }
