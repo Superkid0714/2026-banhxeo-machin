@@ -1,0 +1,20 @@
+node_modules/
+dist/
+dist-server/
+.npm-cache/
+*.local
+
+# Keep local notes private; share project documentation.
+*.[mM][dD]
+!README.md
+!docs/implementation.md
+!docs/v4-progress.md
+
+# Local tooling and the previous project copy.
+.claude/
+festival-order/
+
+# Local environment secrets.
+.env
+.env.*
+!.env.example

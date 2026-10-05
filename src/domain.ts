@@ -1,0 +1,17 @@
+export type Availability = 'available' | 'soldOut' | 'paused'
+export type CheckoutStep = 'notification' | 'phone' | 'consent' | 'review'
+export type NotificationMethod = 'sms' | 'orderNumber'
+export type OrderDraft = { quantity: number; notificationMethod: NotificationMethod | null; phone: string; consent: boolean }
+export type SubmissionPayload = Readonly<{ requestId: string; productId: string; expectedUnitPrice: number; quantity: number; notificationMethod: NotificationMethod; phone: string; consent: boolean }>
+export type Order = Readonly<{ id: string; number: number; productId: string; productName: string; quantity: number; unitPrice: number; total: number; notificationMethod: NotificationMethod; maskedPhone: string | null; status: 'paymentPending'; createdAt: string; paymentWindowMinutes: number }>
+export const PRODUCT = { id: 'banh-xeo', name: '불닭 치즈 반쎄오', unitPrice: 6000 } as const
+export const emptyDraft = (): OrderDraft => ({ quantity: 1, notificationMethod: null, phone: '', consent: false })
+export const validPhone = (phone: string) => /^010\d{8}$/.test(phone)
+export const formatPhone = (phone: string) => [phone.slice(0, 3), phone.slice(3, 7), phone.slice(7, 11)].filter(Boolean).join(' - ')
+export const won = (amount: number) => `${amount.toLocaleString('ko-KR')}원`
+export function snapshot(draft: OrderDraft, requestId: string): SubmissionPayload {
+  if (!Number.isSafeInteger(draft.quantity) || draft.quantity < 1 || !draft.notificationMethod) throw new Error('Invalid draft')
+  if (!validPhone(draft.phone)) throw new Error('Phone is required')
+  if (!draft.consent) throw new Error('Privacy consent is required')
+  return Object.freeze({ requestId, productId: PRODUCT.id, expectedUnitPrice: PRODUCT.unitPrice, quantity: draft.quantity, notificationMethod: draft.notificationMethod, phone: draft.phone, consent: draft.consent })
+}
