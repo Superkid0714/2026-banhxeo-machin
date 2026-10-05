@@ -2,13 +2,13 @@
 
 @theme {
   --font-sans: 'Noto Sans KR', sans-serif;
-  --color-ink: #212124;
-  --color-muted: #686b73;
-  --color-line: #eaebee;
-  --color-order: #ff6f0f;
-  --color-available: #1aa174;
+  --color-ink: #1a1c20;
+  --color-muted: #555d6d;
+  --color-line: #dcdee3;
+  --color-order: #ff6600;
+  --color-available: #079171;
   --color-available-bg: #edf8f3;
-  --color-disabled: #f2f3f6;
+  --color-disabled: #f3f4f5;
   --color-selected: #fff5f0;
   --color-error: #fa2314;
 }
