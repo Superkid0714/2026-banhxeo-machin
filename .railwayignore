@@ -34,5 +34,3 @@ verification/
 *.pem
 *.key
 
-# Account-specific payment image stays outside GitHub.
-public/assets/payment-qr.jpg
