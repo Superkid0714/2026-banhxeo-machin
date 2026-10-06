@@ -36,7 +36,7 @@ export function AppRouter() {
   }, [checkout, requested, step, pending, completedOrder, location.pathname])
   const result = /^\/orders\/([^/]+)$/.exec(location.pathname)
   const home = () => { reset(); navigation.navigate('/') }
-  if (location.pathname === '/usage') return <UsagePage onBack={home} onNew={() => { update({notificationMethod:'sms'}); navigation.navigate('/checkout?step=phone') }} onReservation={() => navigation.navigate('/reservation')} />
+  if (location.pathname === '/usage') return <UsagePage onBack={home} onNew={() => { update({notificationMethod:'sms'}); navigation.navigate('/checkout?step=phone') }} />
   if (location.pathname === '/reservation') return <ReservationPage availability={availability} onHome={home} onBack={() => navigation.back('/usage')} onAccepted={id=>navigation.navigate(`/orders/${id}`)} />
   if (checkout && step !== 'notification') return <CheckoutPage step={step} navigation={navigation} />
   if (checkout) return null
