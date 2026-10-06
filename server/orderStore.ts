@@ -5,10 +5,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { PRODUCT, RESERVATION_UNIT_PRICE, canDeleteOrderHistory, type AdminOrder, type OperationSettings, type SubmissionPayload } from '../src/domain.ts'
 import type { Reservation } from './reservationLookup.ts'
 
-type StoredOrder = { -readonly [K in keyof AdminOrder]: AdminOrder[K] } & { sessionId: string; stockReserved: boolean; encryptedPhone: string; smsLease?: string; smsStartedAt?: number; smsMessageId?: string; smsGroupId?: string }
+type StoredOrder = { -readonly [K in keyof Omit<AdminOrder, 'phone' | 'phoneLast4'>]: AdminOrder[K] } & { sessionId: string; stockReserved: boolean; encryptedPhone: string; smsKind?: 'payment' | 'ready'; smsLease?: string; smsStartedAt?: number; smsMessageId?: string; smsGroupId?: string }
 type State = { orders: StoredOrder[]; requests: Record<string, { hash: string; id: string; deleted?: boolean }>; number: number; settings: OperationSettings; manualPaymentFlow?: boolean }
 export class StoreError extends Error { constructor(public status: number, public code: string) { super(code) } }
-export type OrderAction = 'pay' | 'cook' | 'ready' | 'complete' | 'cancel' | 'refund' | 'restore' | 'resend'
+export type OrderAction = 'pay' | 'cook' | 'ready' | 'complete' | 'archive' | 'cancel' | 'refund' | 'restore' | 'resend'
 export class OrderStore {
   private db: DatabaseSync
   private key: Buffer
@@ -29,6 +29,19 @@ export class OrderStore {
       s.settings.stockTracking = false; s.settings.version++
       for (const order of s.orders) order.stockReserved = !['cancelled','expired'].includes(order.status)
     })
+    // Paid orders share one production stage, including orders created before this update.
+    if (this.read().orders.some(order => order.status === 'accepted')) this.transaction(s => {
+      for (const order of s.orders) if (order.status === 'accepted') {
+        order.status = 'cooking'; order.version++
+        order.history.push({ at: this.stamp(), label: '?쒖옉以묒쑝濡??곹깭 ?듯빀', actor: 'system' })
+      }
+    })
+    if (this.read().orders.some(order => order.status === 'ready')) this.transaction(s => {
+      for (const order of s.orders) if (order.status === 'ready') {
+        order.status='cooking'; order.pickupReady=true; order.smsKind ??= 'ready'; order.version++
+        order.history.push({ at: this.stamp(), label: '議곕━以?/ ?섎졊 ?湲??곹깭 ?듯빀', actor: 'system' })
+      }
+    })
   }
   close() { this.db.close() }
   private read(): State { return JSON.parse(this.db.prepare('SELECT value FROM operation_state WHERE id=1').get()!.value as string) }
@@ -38,19 +51,31 @@ export class OrderStore {
     catch (e) { this.db.exec('ROLLBACK'); throw e }
   }
   private stamp() { return new Date(this.now()).toISOString() }
+  private requestPickup(order: StoredOrder, configured: boolean) {
+    order.pickupReady=true
+    if(order.notificationMethod==='sms'&&(order.smsKind!=='payment'||!['pending','sending','submitted'].includes(order.smsStatus))){
+      order.smsKind='ready';order.smsStatus=configured?'pending':'notConfigured';delete order.smsMessageId;delete order.smsGroupId;delete order.smsStartedAt
+    }
+  }
+  private queuePickup(order: StoredOrder) {
+    if(order.pickupReady&&order.smsKind==='payment'&&!['pending','sending','submitted'].includes(order.smsStatus)){
+      order.smsKind='ready';order.smsStatus='pending';delete order.smsMessageId;delete order.smsGroupId;delete order.smsStartedAt
+    }
+  }
   private event(order: StoredOrder, label: string, actor: string) { order.updatedAt = this.stamp(); order.version++; order.history.push({ at: order.updatedAt, label, actor }) }
   private encrypt(phone: string) { const iv = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', this.key, iv); const bytes = Buffer.concat([cipher.update(phone, 'utf8'), cipher.final()]); return [iv, cipher.getAuthTag(), bytes].map(b => b.toString('hex')).join('.') }
   decryptPhone(order: StoredOrder) { const [iv, tag, bytes] = order.encryptedPhone.split('.').map(v => Buffer.from(v, 'hex')); const cipher = createDecipheriv('aes-256-gcm', this.key, iv); cipher.setAuthTag(tag); return cipher.update(bytes, undefined, 'utf8') + cipher.final('utf8') }
-  private publicOrder(order: StoredOrder): AdminOrder { const { encryptedPhone: _phone, sessionId: _session, stockReserved: _reserved, smsLease: _lease, smsStartedAt: _started, smsMessageId: _message, smsGroupId: _group, ...safe } = order; return safe }
+  private publicOrder(order: StoredOrder): AdminOrder { const { encryptedPhone: _phone, sessionId: _session, stockReserved: _reserved, smsKind: _kind, smsLease: _lease, smsStartedAt: _started, smsMessageId: _message, smsGroupId: _group, ...safe } = order; return safe }
   expire() {
     const state = this.read()
     if (!state.orders.some(o => (o.status === 'paymentPending' && o.paymentWindowMinutes>0 && Date.parse(o.deadline) <= this.now()) || (o.smsStatus === 'sending' && (o.smsStartedAt ?? 0) + 60000 < this.now()))) return
     this.transaction(s => { for (const order of s.orders) {
-      if (order.status === 'paymentPending' && order.paymentWindowMinutes>0 && Date.parse(order.deadline) <= this.now()) { order.status = 'expired'; const reserved=order.stockReserved; if (reserved && order.sessionId === s.settings.sessionId) { s.settings.stock += order.quantity; s.settings.version++ }; order.stockReserved=false; this.event(order, reserved?'결제 시간 초과 · 자동취소 / 재고 복원':'결제 시간 초과 · 자동취소', 'system') }
-      if (order.smsStatus === 'sending' && (order.smsStartedAt ?? 0) + 60000 < this.now()) { order.smsStatus = 'unknown'; delete order.smsLease; this.event(order, '문자 발송 여부 확인 필요', 'system') }
+      if (order.status === 'paymentPending' && order.paymentWindowMinutes>0 && Date.parse(order.deadline) <= this.now()) { order.status = 'expired'; const reserved=order.stockReserved; if (reserved && order.sessionId === s.settings.sessionId) { s.settings.stock += order.quantity; s.settings.version++ }; order.stockReserved=false; this.event(order, reserved?'寃곗젣 ?쒓컙 珥덇낵 쨌 ?먮룞痍⑥냼 / ?ш퀬 蹂듭썝':'寃곗젣 ?쒓컙 珥덇낵 쨌 ?먮룞痍⑥냼', 'system') }
+      if (order.smsStatus === 'sending' && (order.smsStartedAt ?? 0) + 60000 < this.now()) { order.smsStatus = 'unknown'; delete order.smsLease; this.event(order, '臾몄옄 諛쒖넚 ?щ? ?뺤씤 ?꾩슂', 'system');this.queuePickup(order) }
     } })
   }
-  snapshot() { this.expire(); const s = this.read(); return { orders: s.orders.filter(o => o.sessionId === s.settings.sessionId).map(o => this.publicOrder(o)).sort((a,b) => b.number-a.number), historyOrders: s.orders.map(o => this.publicOrder(o)).sort((a,b)=>b.number-a.number), settings: s.settings } }
+  private adminOrder(order: StoredOrder): AdminOrder { const phone = this.decryptPhone(order); return { ...this.publicOrder(order), phone: phone || null, phoneLast4: phone ? phone.slice(-4) : null } }
+  snapshot() { this.expire(); const s = this.read(); const current = s.orders.filter(o => o.sessionId === s.settings.sessionId && !o.finishedAt); return { orders: current.map(o => this.adminOrder(o)).sort((a,b) => b.number-a.number), historyOrders: s.orders.map(o => this.adminOrder(o)).sort((a,b)=>b.number-a.number), settings: s.settings } }
   get(id: string) { this.expire(); const order = this.read().orders.find(o => o.id === id); return order ? this.publicOrder(order) : null }
   submission(key: string) { this.expire(); const s = this.read(); const previous = s.requests[key]; if(previous?.deleted)throw new StoreError(410,'ORDER_DELETED'); const order = previous && s.orders.find(o => o.id === previous.id); return order ? this.publicOrder(order) : null }
   create(payload: SubmissionPayload, raw: string) {
@@ -62,7 +87,7 @@ export class OrderStore {
       if (payload.expectedUnitPrice !== PRODUCT.unitPrice) throw new StoreError(409,'PRICE_CHANGED')
       if (!s.settings.active || s.settings.paused || process.env.DEMO_AVAILABILITY === 'soldOut' || (s.settings.stockTracking && payload.quantity > s.settings.stock)) throw new StoreError(409,'SOLD_OUT')
       const at = this.stamp()
-      const order: StoredOrder = { id: randomUUID(), number: ++s.number, productId: PRODUCT.id, productName: PRODUCT.name, quantity: payload.quantity, unitPrice: PRODUCT.unitPrice, total: PRODUCT.unitPrice * payload.quantity, notificationMethod: payload.notificationMethod, maskedPhone: `${payload.phone.slice(0,3)}-${payload.phone.slice(3,5)}**-${payload.phone.slice(7,9)}**`, status: 'paymentPending', createdAt: at, paymentWindowMinutes: s.settings.retentionMinutes, deadline: new Date(this.now()+s.settings.retentionMinutes*60000).toISOString(), version: 1, updatedAt: at, paymentStatus: 'unpaid', smsStatus: payload.notificationMethod === 'sms' ? 'pending' : 'notUsed', history: [{at,label:'주문 생성',actor:'customer'}], encryptedPhone: this.encrypt(payload.phone), sessionId: s.settings.sessionId, stockReserved: s.settings.stockTracking }
+      const order: StoredOrder = { id: randomUUID(), number: ++s.number, productId: PRODUCT.id, productName: PRODUCT.name, quantity: payload.quantity, unitPrice: PRODUCT.unitPrice, total: PRODUCT.unitPrice * payload.quantity, notificationMethod: payload.notificationMethod, maskedPhone: `${payload.phone.slice(0,3)}-${payload.phone.slice(3,5)}**-${payload.phone.slice(7,9)}**`, status: 'paymentPending', createdAt: at, paymentWindowMinutes: s.settings.retentionMinutes, deadline: new Date(this.now()+s.settings.retentionMinutes*60000).toISOString(), version: 1, updatedAt: at, paymentStatus: 'unpaid', smsStatus: payload.notificationMethod === 'sms' ? 'pending' : 'notUsed', history: [{at,label:'二쇰Ц ?앹꽦',actor:'customer'}], encryptedPhone: this.encrypt(payload.phone), sessionId: s.settings.sessionId, stockReserved: s.settings.stockTracking }
       order.stockReserved=s.settings.stockTracking
       if (order.stockReserved) { s.settings.stock -= order.quantity; s.settings.version++ }; s.orders.push(order); s.requests[payload.requestId] = {hash,id:order.id}
       return { order: this.publicOrder(order), created: true }
@@ -84,7 +109,7 @@ export class OrderStore {
       if (!s.settings.active) throw new StoreError(409, 'OPERATION_ENDED')
       if (s.settings.paused) throw new StoreError(409, 'SOLD_OUT')
       const at = this.stamp()
-      const order: StoredOrder = { id: randomUUID(), number: ++s.number, reservationId: reservation.reservationId, productId: PRODUCT.id, productName: PRODUCT.name, quantity: reservation.quantity, unitPrice: RESERVATION_UNIT_PRICE, total: RESERVATION_UNIT_PRICE * reservation.quantity, notificationMethod: 'orderNumber', maskedPhone: null, status: 'accepted', createdAt: at, paymentWindowMinutes: 0, deadline: at, version: 1, updatedAt: at, paymentStatus: 'paid', smsStatus: 'notUsed', history: [{ at, label: '사전 예약 현장 접수 / 입금 확인 완료', actor: 'customer' }], encryptedPhone: this.encrypt(''), sessionId: s.settings.sessionId, stockReserved: false }
+      const order: StoredOrder = { id: randomUUID(), number: ++s.number, reservationId: reservation.reservationId, productId: PRODUCT.id, productName: PRODUCT.name, quantity: reservation.quantity, unitPrice: RESERVATION_UNIT_PRICE, total: RESERVATION_UNIT_PRICE * reservation.quantity, notificationMethod: 'orderNumber', maskedPhone: null, status: 'cooking', createdAt: at, paymentWindowMinutes: 0, deadline: at, version: 1, updatedAt: at, paymentStatus: 'paid', smsStatus: 'notUsed', history: [{ at, label: '?ъ쟾 ?덉빟 ?꾩옣 ?묒닔 / ?낃툑 ?뺤씤 ?꾨즺', actor: 'customer' }], encryptedPhone: this.encrypt(''), sessionId: s.settings.sessionId, stockReserved: false }
       s.orders.push(order)
       s.requests[key] = { hash: key, id: order.id }
       return { order: this.publicOrder(order), created: true }
@@ -111,14 +136,27 @@ export class OrderStore {
       if (o.version !== version) throw new StoreError(409,'ALREADY_PROCESSED')
       const requireStatus = (...values: string[]) => { if (!values.includes(o.status)) throw new StoreError(409,'INVALID_TRANSITION') }
       let label = ''
-      if (action === 'pay') { requireStatus('paymentPending'); o.paymentStatus='paid'; o.status='accepted'; label='결제 확인 / 주문 접수' }
-      else if (action === 'cook') { requireStatus('accepted'); o.status='cooking'; label='조리 시작' }
-      else if (action === 'ready') { requireStatus('cooking'); o.status='ready'; label='준비 완료'; if (o.notificationMethod === 'sms') o.smsStatus=smsConfigured?'pending':'notConfigured' }
-      else if (action === 'complete') { requireStatus('ready'); o.status='completed'; label='수령 완료' }
-      else if (action === 'cancel') { requireStatus('paymentPending','accepted','cooking','ready'); const started=['cooking','ready'].includes(o.status); const restoreStock=o.stockReserved&&!started; if (restoreStock) {s.settings.stock+=o.quantity;s.settings.version++}; o.stockReserved=false; o.status='cancelled'; if(o.paymentStatus==='paid')o.paymentStatus='refundRequired'; label=restoreStock?'주문 취소 / 재고 복원':started?'주문 취소 / 조리 시작으로 재고 미복원':'주문 취소' }
-      else if (action === 'refund') { requireStatus('cancelled'); if(o.paymentStatus!=='refundRequired')throw new StoreError(409,'INVALID_TRANSITION');o.paymentStatus='refunded';label='현장 환불 완료 확인' }
-      else if (action === 'restore') { requireStatus('expired'); if(!s.settings.active||s.settings.paused||(s.settings.stockTracking&&s.settings.stock<o.quantity))throw new StoreError(409,'SOLD_OUT');o.stockReserved=s.settings.stockTracking;if(o.stockReserved){s.settings.stock-=o.quantity;s.settings.version++};o.status='paymentPending';o.paymentWindowMinutes=s.settings.retentionMinutes;o.deadline=new Date(this.now()+s.settings.retentionMinutes*60000).toISOString();label=o.stockReserved?'주문 복원 / 재고 재확보':'주문 복원' }
-      else if (action === 'resend') { requireStatus('ready'); if(o.notificationMethod!=='sms'||!smsConfigured)throw new StoreError(503,'SMS_NOT_CONFIGURED'); if(['sending','pending','submitted'].includes(o.smsStatus))throw new StoreError(409,'SMS_IN_PROGRESS');o.smsStatus='pending';delete o.smsMessageId;delete o.smsGroupId;label='문자 재안내 요청' }
+      if (action === 'pay') { requireStatus('paymentPending'); o.paymentStatus='paid'; o.status='cooking'; label='寃곗젣 ?뺤씤 / 議곕━以?; if(o.notificationMethod==='sms'){o.smsKind='payment';o.smsStatus=smsConfigured?'pending':'notConfigured'} }
+      else if (action === 'cook') { requireStatus('accepted','cooking'); if(o.status==='cooking')return this.publicOrder(o); o.status='cooking'; label='?쒖옉以? }
+      else if (action === 'ready') {
+        requireStatus('accepted','cooking');if(o.pickupReady)throw new StoreError(409,'ALREADY_PROCESSED')
+        o.status='cooking';this.requestPickup(o,smsConfigured);label='議곕━ ?꾨즺 / ?쎌뾽 ?덈궡'
+      }
+      else if (action === 'complete') { requireStatus('accepted','cooking','ready'); if(!o.pickupReady)this.requestPickup(o,smsConfigured);o.status='completed'; label='?섎졊 ?꾨즺' }
+      else if (action === 'archive') { requireStatus('completed');if(o.finishedAt)throw new StoreError(409,'ALREADY_PROCESSED');o.finishedAt=this.stamp();label='泥섎━ ?꾨즺 / 二쇰Ц ?대젰 蹂닿?' }
+      else if (action === 'cancel') {
+        requireStatus('paymentPending','accepted','cooking','ready')
+        const started=['accepted','cooking','ready'].includes(o.status)
+        if(o.stockReserved&&!started){s.settings.stock+=o.quantity;s.settings.version++}
+        o.stockReserved=false;o.status='cancelled';this.event(o,'二쇰Ц 痍⑥냼 / ??젣',actor)
+        const cancelled=this.publicOrder(o)
+        s.orders.splice(s.orders.indexOf(o),1)
+        for(const request of Object.values(s.requests))if(request.id===id)request.deleted=true
+        return cancelled
+      }
+      else if (action === 'refund') { requireStatus('cancelled'); if(o.paymentStatus!=='refundRequired')throw new StoreError(409,'INVALID_TRANSITION');o.paymentStatus='refunded';label='?꾩옣 ?섎텋 ?꾨즺 ?뺤씤' }
+      else if (action === 'restore') { requireStatus('expired'); if(!s.settings.active||s.settings.paused||(s.settings.stockTracking&&s.settings.stock<o.quantity))throw new StoreError(409,'SOLD_OUT');o.stockReserved=s.settings.stockTracking;if(o.stockReserved){s.settings.stock-=o.quantity;s.settings.version++};o.status='paymentPending';o.paymentWindowMinutes=s.settings.retentionMinutes;o.deadline=new Date(this.now()+s.settings.retentionMinutes*60000).toISOString();label=o.stockReserved?'二쇰Ц 蹂듭썝 / ?ш퀬 ?ы솗蹂?:'二쇰Ц 蹂듭썝' }
+      else if (action === 'resend') { requireStatus('cooking','ready','completed'); if(o.notificationMethod!=='sms'||!smsConfigured||(!o.smsKind&&o.status!=='ready'&&o.status!=='completed'))throw new StoreError(503,'SMS_NOT_CONFIGURED'); if(['sending','pending','submitted'].includes(o.smsStatus))throw new StoreError(409,'SMS_IN_PROGRESS');if(o.status==='completed'||o.pickupReady)o.smsKind='ready';else o.smsKind??='ready';o.smsStatus='pending';delete o.smsMessageId;delete o.smsGroupId;label='臾몄옄 ?ъ븞???붿껌' }
       else throw new StoreError(400,'INVALID_ACTION')
       this.event(o,label,actor);return this.publicOrder(o)
     })
@@ -141,11 +179,11 @@ export class OrderStore {
   }
   claimSms() {
     this.expire()
-    return this.transaction(s=>{const o=s.orders.find(o=>o.status==='ready'&&o.notificationMethod==='sms'&&o.smsStatus==='pending');if(!o)return null;o.smsStatus='sending';o.smsLease=randomUUID();o.smsStartedAt=this.now();this.event(o,'문자 발송 요청 중','system');return {...o} })
+    return this.transaction(s=>{const o=s.orders.find(o=>(o.status==='ready'||(!!o.smsKind&&['cooking','completed'].includes(o.status)))&&o.notificationMethod==='sms'&&o.smsStatus==='pending');if(!o)return null;o.smsStatus='sending';o.smsLease=randomUUID();o.smsStartedAt=this.now();this.event(o,'臾몄옄 諛쒖넚 ?붿껌 以?,'system');return {...o} })
   }
   finishSms(id: string, lease: string, status: 'submitted'|'failed'|'unknown', messageId?: string, groupId?: string) {
-    this.transaction(s=>{const o=s.orders.find(o=>o.id===id);if(!o||o.smsLease!==lease)return;o.smsStatus=status;o.smsMessageId=messageId;o.smsGroupId=groupId;delete o.smsLease;this.event(o,status==='submitted'?'솔라피 발송 요청 접수':status==='failed'?'문자 발송 실패':'문자 발송 여부 확인 필요','system')})
+    this.transaction(s=>{const o=s.orders.find(o=>o.id===id);if(!o||o.smsLease!==lease)return;o.smsStatus=status;o.smsMessageId=messageId;o.smsGroupId=groupId;delete o.smsLease;this.event(o,status==='submitted'?'?붾씪??諛쒖넚 ?붿껌 ?묒닔':status==='failed'?'臾몄옄 諛쒖넚 ?ㅽ뙣':'臾몄옄 諛쒖넚 ?щ? ?뺤씤 ?꾩슂','system');this.queuePickup(o)})
   }
   submittedSms() { return this.read().orders.filter(o=>o.smsStatus==='submitted').slice(0,10) }
-  delivery(id: string, messageId: string, status: 'sent'|'failed'|'unknown') { this.transaction(s=>{const o=s.orders.find(o=>o.id===id);if(!o||o.smsStatus!=='submitted'||o.smsMessageId!==messageId)return;o.smsStatus=status;this.event(o,status==='sent'?'문자 발송 완료':status==='failed'?'문자 발송 실패':'문자 발송 여부 확인 필요','system')}) }
+  delivery(id: string, messageId: string, status: 'sent'|'failed'|'unknown') { this.transaction(s=>{const o=s.orders.find(o=>o.id===id);if(!o||o.smsStatus!=='submitted'||o.smsMessageId!==messageId)return;o.smsStatus=status;this.event(o,status==='sent'?'臾몄옄 諛쒖넚 ?꾨즺':status==='failed'?'臾몄옄 諛쒖넚 ?ㅽ뙣':'臾몄옄 諛쒖넚 ?щ? ?뺤씤 ?꾩슂','system');this.queuePickup(o)}) }
 }

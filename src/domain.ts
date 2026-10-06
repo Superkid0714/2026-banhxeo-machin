@@ -7,16 +7,16 @@ export type OrderStatus = 'paymentPending' | 'accepted' | 'cooking' | 'ready' | 
 export type PaymentStatus = 'unpaid' | 'paid' | 'refundRequired' | 'refunded'
 export type SmsStatus = 'notUsed' | 'notConfigured' | 'pending' | 'sending' | 'submitted' | 'sent' | 'failed' | 'unknown'
 export type Order = Readonly<{ id: string; number: number; productId: string; productName: string; quantity: number; unitPrice: number; total: number; notificationMethod: NotificationMethod; maskedPhone: string | null; status: OrderStatus; createdAt: string; paymentWindowMinutes: number; reservationId?: number; pickupReady?: boolean; finishedAt?: string }>
-export type AdminOrder = Order & { version: number; paymentStatus: PaymentStatus; smsStatus: SmsStatus; deadline: string; updatedAt: string; history: { at: string; label: string; actor: string }[] }
+export type AdminOrder = Order & { phone?: string | null; phoneLast4?: string | null; version: number; paymentStatus: PaymentStatus; smsStatus: SmsStatus; deadline: string; updatedAt: string; history: { at: string; label: string; actor: string }[] }
 export type OperationSettings = { stock: number; stockTracking: boolean; paused: boolean; active: boolean; retentionMinutes: 0 | 10 | 20; sessionId: string; version: number }
 export type AdminSnapshot = { orders: AdminOrder[]; historyOrders: AdminOrder[]; settings: OperationSettings; smsConfigured: boolean }
 export const canDeleteOrderHistory = (order: AdminOrder) => ['completed', 'cancelled', 'expired'].includes(order.status) && order.paymentStatus !== 'refundRequired' && order.smsStatus !== 'sending'
-export const PRODUCT = { id: 'banh-xeo', name: '불닭 치즈 반쎄오', unitPrice: 6000 } as const
+export const PRODUCT = { id: 'banh-xeo', name: '遺덈떗 移섏쫰 諛섏럡??, unitPrice: 6000 } as const
 export const RESERVATION_UNIT_PRICE = 5500
 export const emptyDraft = (): OrderDraft => ({ quantity: 1, notificationMethod: null, phone: '', consent: false })
 export const validPhone = (phone: string) => /^010\d{8}$/.test(phone)
 export const formatPhone = (phone: string) => [phone.slice(0, 3), phone.slice(3, 7), phone.slice(7, 11)].filter(Boolean).join(' - ')
-export const won = (amount: number) => `${amount.toLocaleString('ko-KR')}원`
+export const won = (amount: number) => `${amount.toLocaleString('ko-KR')}??
 export function snapshot(draft: OrderDraft, requestId: string): SubmissionPayload {
   if (!Number.isSafeInteger(draft.quantity) || draft.quantity < 1 || !draft.notificationMethod) throw new Error('Invalid draft')
   if (!validPhone(draft.phone)) throw new Error('Phone is required')

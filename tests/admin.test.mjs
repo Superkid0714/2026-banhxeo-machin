@@ -32,14 +32,21 @@ test('admin authentication protects orders and revokes sessions', { timeout: 200
     const auth = { headers: { Cookie: cookie } }
     assert.equal((await fetch(`${base}/api/admin/session`, auth)).status, 200)
     assert.equal((await fetch(`${base}/api/admin/orders`, { headers: { Cookie: cookie + 'tampered' } })).status, 401)
-    const payload = { requestId: randomUUID(), productId: 'banh-xeo', expectedUnitPrice: 6000, quantity: 2, notificationMethod: 'orderNumber', phone: '01000000000', consent: true }
+    const payload = { requestId: randomUUID(), productId: 'banh-xeo', expectedUnitPrice: 6000, quantity: 2, notificationMethod: 'orderNumber', phone: '01012340007', consent: true }
     const created = await (await fetch(`${base}/api/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })).json()
     const list = await fetch(`${base}/api/admin/orders`, auth)
     assert.equal(list.status, 200)
     assert.equal(list.headers.get('cache-control'), 'no-store')
     const data = await list.json()
-    assert.deepEqual(data.orders, [created])
-    assert.ok(!JSON.stringify(data).includes(payload.phone))
+    assert.equal(created.phoneLast4, undefined)
+    assert.equal(created.phone, undefined)
+    assert.deepEqual(data.orders, [{ ...created, phone: payload.phone, phoneLast4: '0007' }])
+    assert.equal(data.historyOrders[0].phoneLast4, '0007')
+    assert.equal(data.historyOrders[0].phone, payload.phone)
+    for (const path of [`orders/${created.id}`, `submissions/${payload.requestId}`]) {
+      const customer = await (await fetch(`${base}/api/${path}`)).json()
+      assert.ok(!JSON.stringify(customer).includes(payload.phone))
+    }
     const deletion = (order, headers = { Cookie: cookie, Origin: base }, confirmationNumber = order.number) => fetch(`${base}/api/admin/orders/${order.id}/delete-history`, {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ version: order.version, confirmationNumber }),
     })
@@ -49,9 +56,8 @@ test('admin authentication protects orders and revokes sessions', { timeout: 200
     const cancelled = await (await fetch(`${base}/api/admin/orders/${created.id}/actions`, {
       method: 'POST', headers: { Cookie: cookie, Origin: base, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel', version: created.version }),
     })).json()
-    assert.equal((await deletion(created)).status, 409)
-    assert.equal((await deletion(cancelled, undefined, cancelled.number + 1)).status, 400)
-    assert.equal((await deletion(cancelled)).status, 200)
+    assert.equal(cancelled.status, 'cancelled')
+    assert.equal((await deletion(created)).status, 404)
     const afterDeletion = await (await fetch(`${base}/api/admin/orders`, auth)).json()
     assert.equal(afterDeletion.historyOrders.length, 0)
     assert.equal(afterDeletion.orders.length, 0)
