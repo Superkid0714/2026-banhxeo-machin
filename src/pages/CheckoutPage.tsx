@@ -8,19 +8,19 @@ import { useOrderDraft } from '../features/checkout/OrderDraftProvider'
 import { NotificationChoice } from '../features/checkout/components/NotificationChoice'
 import { PhoneNumberEntry } from '../features/checkout/components/PhoneNumberEntry'
 import { PrivacyConsent } from '../features/checkout/components/PrivacyConsent'
-import { OrderReview } from '../features/checkout/components/OrderReview'
+import { PaymentStep } from '../features/checkout/components/PaymentStep'
 export function CheckoutPage({ step, navigation }: { step: CheckoutStep; navigation: Navigation }) {
   const { draft, submission, pending, phoneValid, submit } = useOrderDraft()
   const [errorPhone, setErrorPhone] = useState<string | null>(null)
   const error = errorPhone === draft.phone && !phoneValid
   const go = (next: CheckoutStep) => navigation.navigate(`/checkout?step=${next}`)
-  const frame = step === 'notification' ? frames.notification[draft.notificationMethod ?? 'unselected'] : step === 'phone' ? frames.phone[error ? 'invalid' : 'valid'] : step === 'consent' ? frames.consent[draft.consent ? 'checked' : 'unchecked'] : submission === 'submitting' ? frames.review.submitting : frames.review[draft.notificationMethod ?? 'orderNumber']
-  const onSubmit = async () => { const order = await submit(); if (order) navigation.navigate(`/orders/${order.id}`, true) }
+  const frame = step === 'notification' ? frames.notification[draft.notificationMethod ?? 'unselected'] : step === 'phone' ? frames.phone[error ? 'invalid' : 'valid'] : frames.consent[draft.consent ? 'checked' : 'unchecked']
+  const onSubmit = async () => { await submit() }
   return <FrameLayout frame={frame}>
-    <CheckoutHeader review={step === 'review'} locked={submission === 'submitting' || pending} onBack={() => navigation.back('/usage')} />
+    <CheckoutHeader payment={step === 'payment'} locked={submission === 'submitting' || pending} onBack={() => step === 'phone' ? navigation.navigate('/') : navigation.back(step === 'payment' ? '/checkout?step=consent' : '/checkout?step=phone')} />
     {step === 'notification' && <NotificationChoice onNext={() => go('phone')} />}
     {step === 'phone' && <PhoneNumberEntry error={error} onValidate={() => setErrorPhone(phoneValid ? null : draft.phone)} onContinue={() => { if (phoneValid) go('consent') }} />}
-    {step === 'consent' && <PrivacyConsent onContinue={() => { if (draft.consent) go('review') }} />}
-    {step === 'review' && <OrderReview onEditPhone={() => go('phone')} onSubmit={() => { void onSubmit() }} />}
+    {step === 'consent' && <PrivacyConsent onContinue={() => { if (draft.consent) go('payment') }} />}
+    {step === 'payment' && <PaymentStep onSubmit={() => { void onSubmit() }} />}
   </FrameLayout>
 }

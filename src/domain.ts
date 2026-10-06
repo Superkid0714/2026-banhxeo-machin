@@ -1,12 +1,12 @@
 export type Availability = 'available' | 'soldOut' | 'paused'
-export type CheckoutStep = 'notification' | 'phone' | 'consent' | 'review'
+export type CheckoutStep = 'notification' | 'phone' | 'consent' | 'payment'
 export type NotificationMethod = 'sms' | 'orderNumber'
 export type OrderDraft = { quantity: number; notificationMethod: NotificationMethod | null; phone: string; consent: boolean }
 export type SubmissionPayload = Readonly<{ requestId: string; productId: string; expectedUnitPrice: number; quantity: number; notificationMethod: NotificationMethod; phone: string; consent: boolean }>
 export type OrderStatus = 'paymentPending' | 'accepted' | 'cooking' | 'ready' | 'completed' | 'cancelled' | 'expired'
 export type PaymentStatus = 'unpaid' | 'paid' | 'refundRequired' | 'refunded'
 export type SmsStatus = 'notUsed' | 'notConfigured' | 'pending' | 'sending' | 'submitted' | 'sent' | 'failed' | 'unknown'
-export type Order = Readonly<{ id: string; number: number; productId: string; productName: string; quantity: number; unitPrice: number; total: number; notificationMethod: NotificationMethod; maskedPhone: string | null; status: OrderStatus; createdAt: string; paymentWindowMinutes: number; reservationId?: number }>
+export type Order = Readonly<{ id: string; number: number; productId: string; productName: string; quantity: number; unitPrice: number; total: number; notificationMethod: NotificationMethod; maskedPhone: string | null; status: OrderStatus; createdAt: string; paymentWindowMinutes: number; reservationId?: number; pickupReady?: boolean; finishedAt?: string }>
 export type AdminOrder = Order & { version: number; paymentStatus: PaymentStatus; smsStatus: SmsStatus; deadline: string; updatedAt: string; history: { at: string; label: string; actor: string }[] }
 export type OperationSettings = { stock: number; stockTracking: boolean; paused: boolean; active: boolean; retentionMinutes: 0 | 10 | 20; sessionId: string; version: number }
 export type AdminSnapshot = { orders: AdminOrder[]; historyOrders: AdminOrder[]; settings: OperationSettings; smsConfigured: boolean }
