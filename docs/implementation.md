@@ -1,6 +1,6 @@
 # 고객 주문 흐름 구현
 
-2026-11-26 소스 `da381a3` 기준이다. 10월 현장 개선은 배포됐으나 11월 경로 정리·예약 코드 통일은 아직 미배포다. [배포 상태](deployment-runbook.md)와 [전체 운영 기록](operations-record.md)을 함께 참고한다. 초기 notification → phone → consent → review 설명을 현재의 phone → consent → payment 구현으로 갱신했다. 이전 설계의 배경은 Git 이력과 [초기 V4 기록](v4-progress.md)에 남아 있다.
+2026-11-26 소스 `da381a3` 기준이다. 운영 중 접수 병목에 대응한 화면 간소화는 배포했다. 운영 이후 코드를 점검해 발견한 경로 정리·예약 코드 통일은 구현·로컬 검증했으나 아직 미배포다. 문제와 변경의 연결은 [운영 경험 분석](field-operation-changes.md), 실제 적용 여부는 [배포 상태](deployment-runbook.md), 전체 결과는 [운영 기록](operations-record.md)을 참고한다. 초기 notification → phone → consent → review 설명을 현재의 phone → consent → payment 구현으로 갱신했다. 이전 설계의 배경은 Git 이력과 [초기 V4 기록](v4-progress.md)에 남아 있다.
 
 ## 현재 화면과 경로
 
