@@ -11,6 +11,9 @@ data/
 !docs/implementation.md
 !docs/v4-progress.md
 !docs/field-operation-changes.md
+!docs/operations-record.md
+!docs/technical-reference.md
+!docs/deployment-runbook.md
 
 # Local tooling and the previous project copy.
 .claude/
