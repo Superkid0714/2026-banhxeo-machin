@@ -1,63 +1,48 @@
 # 고객 주문 흐름 구현
 
-최신 정책 변경: 전화번호는 모든 주문에서 필수이고 문자 알림만 선택한다. notification → phone → consent → review 순서가 공통이다. 원본 Figma와 달리 phone/consent의 건너뛰기 버튼을 제거했고, SMS 미사용 주문도 전화번호·동의를 보관한다. 아래 원본 프레임은 레이아웃 reference이며 선택 입력에 관한 기존 설명은 이 정책으로 대체한다.
+2026-11-26 소스 `da381a3` 기준이다. 10월 현장 개선은 배포됐으나 11월 경로 정리·예약 코드 통일은 아직 미배포다. [배포 상태](deployment-runbook.md)와 [전체 운영 기록](operations-record.md)을 함께 참고한다. 초기 notification → phone → consent → review 설명을 현재의 phone → consent → payment 구현으로 갱신했다. 이전 설계의 배경은 Git 이력과 [초기 V4 기록](v4-progress.md)에 남아 있다.
 
-## Route / step / state
+## 현재 화면과 경로
 
-- `/`: 상품 주문 홈. available / soldOut / paused는 도메인 상태이며 마지막 두 상태는 Figma의 동일 SOLD OUT presentation을 사용한다.
-- `/checkout?step=notification`: 알림 방법 선택.
-- `/checkout?step=phone`: 전화번호 입력과 오류.
-- `/checkout?step=consent`: 개인정보 동의 여부.
-- `/checkout?step=review`: 문자 사용 여부·수량·제출 진행 상태.
-- `/orders/:orderId`: 서버 생성 Order 조회 결과. 생성 완료는 결제 완료나 수령 완료가 아닌 paymentPending이다.
-
-4개 checkout step은 하나의 CheckoutPage 내부 컴포넌트다. 이동 시 pushState하고 popstate로 복원한다. 없는 step이나 선행 조건이 누락된 직접 링크는 replaceState로 유효한 단계에 정규화한다. 입력은 sessionStorage로 같은 탭의 새로고침을 지원한다.
-
-HomeHeader와 CheckoutHeader는 각각 구현한다. 공유하는 작은 요소는 BoothIdentity다. 프레임에서 확인되지 않은 Modal, Drawer, Dialog, 오류 화면은 만들지 않는다.
-
-## 제출 경계
-
-1. 최종 버튼 클릭 직후 ref 잠금으로 같은 이벤트 루프의 중복 제출을 막는다.
-2. draft를 복사한 flat payload를 Object.freeze한다. readonly 타입도 적용한다.
-3. 제출 중 모든 draft mutator, 단계 이동, 수량·번호 변경·뒤로가기 버튼이 잠긴다. 브라우저 back/forward는 기존 history 위치로 복원한다.
-4. 서버는 수량·번호·동의를 재검증하고 금액·주문 ID·번호·상태를 생성한다. 같은 요청 키로 주문을 중복 생성하지 않는다.
-5. 성공하면 서버 ID의 주문 결과 route로 이동하고 GET으로 Order를 조회한다. 결과는 draft를 읽지 않는다.
-6. 실패하면 입력을 보존하고 기존 Figma 확인 화면으로 돌아온다. 입력 수정 전 재시도는 같은 snapshot/key를 사용한다.
-7. 처음 화면으로 이동할 때 초안을 초기화한다. 번호 수정 시 동의도 초기화한다.
-
-## Figma 대응
-
-| 프레임 | route / step / state |
+| 경로·단계 | 동작 |
 | --- | --- |
-| 4:42962 | / · available |
-| 4:42997 | / · soldOut 또는 paused |
-| 4:43036 | checkout · notification · null |
-| 4:43068 | checkout · notification · sms |
-| 4:43100 | checkout · notification · orderNumber |
-| 4:43132 | checkout · phone · 정상 |
-| 4:43187 | checkout · phone · 오류 |
-| 4:43243 | checkout · consent · false |
-| 4:43279 | checkout · consent · true |
-| 4:43316 | checkout · review · sms |
-| 4:43362 | checkout · review · orderNumber |
-| 4:43405 | checkout · review · submitting |
-| 4:43452 | orders/:orderId · sms |
-| 4:43480 | orders/:orderId · orderNumber |
+| `/` | 상품·수량 확인. 접수 중단이면 신규 주문·예약 진입을 제한 |
+| `/checkout?step=phone` | 필수 전화번호 입력, 형식 검증·오류 안내 |
+| `/checkout?step=consent` | 개인정보 동의. 연락처 수정 시 동의 초기화 |
+| `/checkout?step=payment` | 별도의 계좌·QR·금액 확인과 최종 주문 제출 |
+| `/reservation` | 수령코드로 사전예약 현장 접수. 소스 규칙은 6자리 숫자 |
+| `/orders/:orderId` | 기존 서버 주문 결과·변경 상태 조회 |
 
-이 대응 관계는 src/design/figmaFrameMap.ts에 기록했다.
+현장 주문 제출 성공 후에는 고객이 추가로 완료 화면을 조작할 필요 없이 초안을 정리하고 홈으로 돌아간다. 개인정보 동의와 계좌 확인은 별도 화면이다. 웹 주문 생성은 `paymentPending`이며 실제 결제·입금 확인과 다르다. 주문번호가 서버에서 생성되고 직원의 입금 확인 뒤 조리중이 된다.
+
+사전예약은 별도 서버가 확인한 예약의 수량·입금·한국 날짜를 기준으로 현장 접수한다. 예약용 `orderNumber` 방식과 기존 결과 조회는 유지한다. 현장 신규 주문의 문자 알림 흐름과 이를 혼동하지 않는다.
+
+## 라우트 정규화와 이전 링크
+
+11월 소스의 `src/app/checkoutStep.ts`에 순수 함수 `resolveCheckoutStep`을 둔다. 기본은 phone이며 유효한 전화번호 없이 동의·입금으로 직접 진입할 수 없다. 입금 진입 전 동의도 확인한다. 미확정 제출 복구 중에는 payment로 연결해 동일 요청을 복구한다.
+
+구 `/usage`와 notification 단계는 phone으로 연결하고 review는 payment의 별칭으로 처리한다. 사용하지 않는 `NotificationChoice`와 notification 타입·프레임은 삭제했다. 렌더되지 않는 코드가 남아 있는 상태를 새 단계로 설명하지 않는다.
+
+브라우저 history와 popstate로 이동을 처리한다. 제출 중에는 일반 단계 변경·초안 수정·새 주문 시작을 잠가 제출 내용이 바뀌지 않도록 한다. 같은 탭의 새로고침은 초안·제출 저널로 복구한다. 탭 종료 또는 저장소 삭제까지 보장하지는 않는다.
+
+## 제출과 응답 유실 복구
+
+1. 최종 버튼은 중복 제출 잠금을 사용하고 draft를 불변 payload로 복사한다.
+2. `expectedUnitPrice`, 상품·수량·번호·동의와 UUID requestId를 sessionStorage 저널에 먼저 기록한다. 저장 실패 시 API를 호출하지 않는다.
+3. 서버에 같은 requestId의 기존 주문이 있는지 조회한다. 404일 때만 같은 키로 새 주문을 요청한다. 조회 장애·타임아웃은 부재 증거가 아니다.
+4. 서버는 가격·수량·번호·동의를 다시 검사하고 금액·주문 ID·번호를 결정한다. 같은 키의 다른 내용은 충돌로 거부한다.
+5. 성공 시 저널은 원문 전화번호가 없는 서버 Order로 교체하고 현장 고객 초안을 초기화해 홈으로 돌아간다.
+6. 실패·불명확 시 초안을 보존하고 같은 제출값·키로 재시도한다. 새 키로 자동 재전송하지 않는다.
+7. 기존 `/orders/:id`는 draft 대신 서버 응답을 조회한다. 일시 조회 오류로 홈에 강제 이동시키지 않는다.
+
+서버는 SQLite의 요청 키 매핑으로 재시작 뒤에도 중복 생성 방지를 유지한다. 이는 초기 메모리 API와 다르다. 11월 소스는 주문 저장 뒤의 인위적 800ms 지연을 제거했지만 제출 저널·서버 검증·요청 키 처리는 유지했다.
+
+## 표시·설정·접근성
+
+HomeHeader와 CheckoutHeader를 분리하고 BoothIdentity를 공유한다. Figma는 초기 레이아웃의 참고이며 현장 개선 이후의 단계 동작을 제한하는 명세로 사용하지 않는다. 현재 프레임 연결은 `src/design/figmaFrameMap.ts`를 따른다.
+
+연락처는 숫자 키패드와 입력 검증, 동의는 필수 선택, 제출 중에는 비활성·진행 표시를 제공한다. 계좌 안내 값은 `VITE_PAYMENT_*`로 빌드에 넣고 계좌별 QR은 Git 밖에서 공급한다. 실제 값·연락처·고객 포함 화면을 이 문서에 넣지 않는다.
 
 ## 검증
 
-- TypeScript 검사, Vite 빌드.
-- snapshot 불변성, 필수 전화번호·동의 검증, 제출 저널 및 응답 유실 복구: 7개 단위 테스트.
-- 동시 요청의 동일 주문 반환, 요청 키 충돌 거부, 서버 주문 재조회, 가격·전화번호·동의 검증: 4개 API 테스트.
-- 배포 서버의 상태 확인, SPA 직접 접근, 정적 파일, API 테스트 실행: `npm run test:deploy`.
-- 브라우저에서 문자 / 주문번호 경로의 생성 결과, 번호 오류, 동의 버튼 활성 조건 확인.
-- query history back/forward 및 review 새로고침 후 초안 유지 확인.
-- 문자 알림 건너뛰기 후 뒤로가기, 번호 변경 후 동의 초기화 확인.
-- submitting 프레임에서 모든 버튼 disabled, 브라우저 back 차단 확인.
-- 주문 결과 URL 새로고침으로 서버 Order 재조회 확인.
-- 원본 1280×800 및 태블릿 1024×640의 이미지·아이콘·배치 비교. 늘어난 info 아이콘을 24×24로 수정.
-- 10개 Figma 에셋의 로컬 파일 크기와 SVG root 치수 확인.
-
-스크린샷은 verification/에 저장한다. 로컬 API는 데모이며 production persistence, 결제, SMS, 자동취소가 구현된 서버로 간주하지 않는다.
+현재 자동 검증은 타입·운영 빌드, 도메인·복구 8건, API 4건을 포함한다. 관리자·상태·예약·예측을 포함한 전체 48건은 [기술 문서의 검증](technical-reference.md#검증)에 정리했다. 원본 Figma와의 과거 이미지 비교는 당시 검증이며 이번에 모든 해상도·실기기·네트워크 장애를 재검증했다는 뜻은 아니다. 화면·로그는 비공개 `verification/`에 보관한다.

@@ -1,5 +1,7 @@
 # V4 1차 보완
 
+> **역사적 기록 — 2026-10-02 시점.** 아래의 메모리 데모, notification/review 단계, 관리자·SMS 미구현, PostgreSQL 계획은 당시 상태와 제안이며 현재 운영 명세가 아니다. 이후 SQLite 영구 저장·관리자·문자·재발송·간소화한 고객 흐름을 구현했다. 현재 명세는 [고객 구현](implementation.md)·[기술 종합](technical-reference.md), 실제 운영 적용 여부는 [배포 기록](deployment-runbook.md), 전체 결과와 연혁은 [운영 총정리](operations-record.md)를 따른다. 아래 본문은 당시 의사결정의 추적을 위해 보존한다.
+
 추가 운영 정책 변경: 사용자가 모든 주문의 전화번호 수집을 필수로 지정했다. 문자 알림은 기존 선택을 유지한다. 클라이언트 snapshot·route guard·API 모두 전화번호와 동의를 요구하며 건너뛰기 UI를 제거했다. V4 문서 §28의 미사용 시 phone=NULL 정책은 현재 구현에 적용되지 않는다. 검증은 단위 7개·API 4개로 확대했다.
 
 2026-10-02. 고객 Figma 화면과 React/Vite 스택을 유지하며 주문 제출 경계를 보완했다.
