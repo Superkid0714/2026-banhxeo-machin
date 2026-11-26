@@ -35,3 +35,18 @@ test('minimal schema rejects private extra fields, invalid dates and ambiguous t
   assert.throws(() => run([{ ...record('2026-10-06T08:00:00Z', 20), createdAt: '2026-10-06T08:00:00' }]), /Invalid record/)
   assert.throws(() => analyzeOperationDays({ schemaVersion: 1, records: [] }, '2026-02-30', '2026-10-07'), /valid dates/)
 })
+
+test('delay thresholds are strict, use completed denominators and separate single-item orders', () => {
+  const result = analyzeOperationDays({ schemaVersion: 1, records: [
+    record('2026-10-06T08:00:00Z', 15), record('2026-10-06T09:00:00Z', 30), record('2026-10-06T10:00:00Z', 31, 2),
+    record('2026-10-07T08:00:00Z', 15), record('2026-10-07T09:00:00Z', 30), record('2026-10-07T10:00:00Z', 30, 2), record('2026-10-07T11:00:00Z', null),
+  ] }, '2026-10-06', '2026-10-07')
+  const [before, after] = result.daily
+  assert.equal(before.allRecordedCompletions.over15Minutes, 2)
+  assert.equal(before.allRecordedCompletions.over30Minutes, 1)
+  assert.equal(after.allRecordedCompletions.over30Minutes, 0)
+  assert.equal(after.allRecordedCompletions.over15Percent, 66.6667)
+  assert.equal(result.comparison.over30RateDecreasePercentagePoints, 33.3333)
+  assert.equal(before.singleItemRecordedCompletions.count, 2)
+  assert.equal(result.comparison.singleItemMeanReductionPercent, 0)
+})
