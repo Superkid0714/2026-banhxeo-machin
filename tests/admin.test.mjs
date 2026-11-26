@@ -43,6 +43,10 @@ test('admin authentication protects orders and revokes sessions', { timeout: 200
     assert.deepEqual(data.orders, [{ ...created, phone: payload.phone, phoneLast4: '0007' }])
     assert.equal(data.historyOrders[0].phoneLast4, '0007')
     assert.equal(data.historyOrders[0].phone, payload.phone)
+    const board = await (await fetch(`${base}/api/admin/orders?history=exclude`, auth)).json()
+    assert.deepEqual(board.historyOrders, [])
+    assert.deepEqual(board.orders, data.orders)
+    assert.equal((await fetch(`${base}/api/admin/orders?history=exclude`)).status, 401)
     for (const path of [`orders/${created.id}`, `submissions/${payload.requestId}`]) {
       const customer = await (await fetch(`${base}/api/${path}`)).json()
       assert.ok(!JSON.stringify(customer).includes(payload.phone))

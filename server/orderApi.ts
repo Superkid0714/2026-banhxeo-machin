@@ -4,7 +4,7 @@ import { createAdminAuth } from './adminAuth.ts'
 import { OrderStore, StoreError, type OrderAction } from './orderStore.ts'
 import { processSms, smsConfigured } from './solapi.ts'
 import { lookupReservation } from './reservationLookup.ts'
-import { PRODUCT, validPhone, type Availability, type SubmissionPayload } from '../src/domain.ts'
+import { PRODUCT, validPhone, type SubmissionPayload } from '../src/domain.ts'
 
 async function body(req: IncomingMessage) {
   let raw = ''
@@ -42,7 +42,7 @@ export function createOrderMiddleware(lookup = lookupReservation): Connect.NextH
       }
       if (pathname.startsWith('/api/admin/')) {
         if (!admin.authenticated(req)) { send(401,{error:'UNAUTHORIZED'});return }
-        if (req.method==='GET' && pathname==='/api/admin/orders') {send(200,{...store.snapshot(),smsConfigured:smsConfigured()});return}
+        if (req.method==='GET' && pathname==='/api/admin/orders') {send(200,{...store.snapshot(new URL(req.url!, 'http://localhost').searchParams.get('history') !== 'exclude'),smsConfigured:smsConfigured()});return}
         if (req.method==='POST' && pathname==='/api/admin/settings') {
           const {value}=await body(req)
           if(!value||!Number.isSafeInteger(value.version))throw new StoreError(400,'INVALID_REQUEST')
@@ -63,9 +63,7 @@ export function createOrderMiddleware(lookup = lookupReservation): Connect.NextH
         send(404,{error:'Not found'});return
       }
       if(req.method==='GET'&&pathname==='/api/availability'){
-        const {settings}=store.snapshot()
-        const availability: Availability = !settings.active||settings.paused?'paused':(settings.stockTracking&&settings.stock===0)||process.env.DEMO_AVAILABILITY==='soldOut'?'soldOut':'available'
-        send(200,{availability});return
+        send(200,{availability:store.availability()});return
       }
       if(req.method==='GET'&&pathname.startsWith('/api/submissions/')){const order=store.submission(pathname.slice('/api/submissions/'.length));send(order?200:404,order??{error:'Not found'});return}
       if(req.method==='GET'&&pathname.startsWith('/api/orders/')){const order=store.get(pathname.slice('/api/orders/'.length));send(order?200:404,order??{error:'Order not found'});return}
@@ -75,7 +73,6 @@ export function createOrderMiddleware(lookup = lookupReservation): Connect.NextH
       if(typeof payload.phone!=='string'||!validPhone(payload.phone))throw new StoreError(400,'Phone is required')
       if(payload.consent!==true)throw new StoreError(400,'Privacy consent is required')
       const result=store.create(payload,raw)
-      if(result.created)await new Promise(resolve=>setTimeout(resolve,800))
       send(result.created?201:200,result.order)
     }catch(e){ if(e instanceof StoreError)send(e.status,{error:e.code});else{console.error('Order storage request failed');send(500,{error:'STORAGE_UNAVAILABLE'})} }
   }

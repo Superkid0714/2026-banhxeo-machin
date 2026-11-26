@@ -1,5 +1,5 @@
 export type Availability = 'available' | 'soldOut' | 'paused'
-export type CheckoutStep = 'notification' | 'phone' | 'consent' | 'payment'
+export type CheckoutStep = 'phone' | 'consent' | 'payment'
 export type NotificationMethod = 'sms' | 'orderNumber'
 export type OrderDraft = { quantity: number; notificationMethod: NotificationMethod | null; phone: string; consent: boolean }
 export type SubmissionPayload = Readonly<{ requestId: string; productId: string; expectedUnitPrice: number; quantity: number; notificationMethod: NotificationMethod; phone: string; consent: boolean }>
@@ -16,6 +16,7 @@ export const canDeleteOrderHistory = (order: AdminOrder) => ['completed', 'cance
 export const PRODUCT = { id: 'banh-xeo', name: '불닭 치즈 반쎄오', unitPrice: 6000 } as const
 export const RESERVATION_UNIT_PRICE = 5500
 export const emptyDraft = (): OrderDraft => ({ quantity: 1, notificationMethod: null, phone: '', consent: false })
+export const validPickupCode = (value: string) => /^[0-9]{6}$/.test(value)
 export const validPhone = (phone: string) => /^010\d{8}$/.test(phone)
 export const formatPhone = (phone: string) => [phone.slice(0, 3), phone.slice(3, 7), phone.slice(7, 11)].filter(Boolean).join(' - ')
 export const won = (amount: number) => `${amount.toLocaleString('ko-KR')}원`

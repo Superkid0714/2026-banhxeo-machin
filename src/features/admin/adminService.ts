@@ -10,7 +10,7 @@ export const adminService = {
   session: () => request<{username:string}>('session'),
   login: (username:string,password:string) => request('login',{username,password}),
   logout: () => request('logout',{}),
-  snapshot: () => request<AdminSnapshot>('orders'),
+  snapshot: (includeHistory = true) => request<AdminSnapshot>(includeHistory ? 'orders' : 'orders?history=exclude'),
   action: (id:string,action:string,version:number) => request(`orders/${id}/actions`,{action,version}),
   deleteHistory: (id:string,version:number,confirmationNumber:number) => request(`orders/${id}/delete-history`,{version,confirmationNumber}),
   settings: (input:object) => request('settings',input),

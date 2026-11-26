@@ -1,3 +1,4 @@
+import { resolveCheckoutStep } from '../src/app/checkoutStep.ts'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyDraft, snapshot } from '../src/domain.ts'
@@ -23,4 +24,18 @@ test('all orders require a valid phone, even without SMS', () => {
   assert.equal(payload.phone, '01012345678')
   assert.throws(() => snapshot({ ...emptyDraft(), notificationMethod: 'orderNumber' }, 'key'))
   assert.throws(() => snapshot({ ...emptyDraft(), notificationMethod: 'orderNumber', phone: '0101234567' }, 'key'))
+})
+
+
+test('legacy checkout links keep phone and consent gates while pending submissions remain recoverable', () => {
+  const empty = { phone: '', consent: false }
+  const phone = { phone: '01012345678', consent: false }
+  const agreed = { ...phone, consent: true }
+  for (const step of [null, 'notification', 'unknown']) assert.equal(resolveCheckoutStep(step, agreed), 'phone')
+  assert.equal(resolveCheckoutStep('review', empty), 'phone')
+  assert.equal(resolveCheckoutStep('review', phone), 'consent')
+  assert.equal(resolveCheckoutStep('review', agreed), 'payment')
+  assert.equal(resolveCheckoutStep('payment', empty), 'phone')
+  assert.equal(resolveCheckoutStep('consent', phone), 'consent')
+  assert.equal(resolveCheckoutStep('notification', empty, true), 'payment')
 })

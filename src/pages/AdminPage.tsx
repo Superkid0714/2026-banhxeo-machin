@@ -28,7 +28,7 @@ export function AdminPage() {
   const refresh=useCallback(async()=>{
     const index=++requestIndex.current
     try {
-      const snapshot=await adminService.snapshot()
+      const snapshot=await adminService.snapshot(view === 'history')
       if(index!==requestIndex.current||!loggedIn.current)return
       setData(snapshot);setDisconnected(false)
       if(isDisconnected.current){notify('연결이 복구되었습니다. 최신 주문으로 갱신했습니다.');isDisconnected.current=false}
@@ -37,7 +37,7 @@ export function AdminPage() {
       if(e instanceof AdminError&&e.status===401){loggedIn.current=false;setSignedIn(false);setData(null);setSelected(null);setConfirmation(null);setError('로그인이 만료되었습니다. 다시 로그인해주세요.')}
       else{isDisconnected.current=true;setDisconnected(true)}
     }
-  },[notify])
+  },[notify,view])
   useEffect(()=>{if(!signedIn)return;void refresh();const timer=setInterval(()=>{void refresh()},5000);return()=>{clearInterval(timer);requestIndex.current++}},[signedIn,refresh])
   const login=async(e:FormEvent)=>{e.preventDefault();if(busy)return;setBusy(true);setError('');try{await adminService.login(username,password);setPassword('');loggedIn.current=true;setSignedIn(true)}catch(e){setError(e instanceof AdminError&&e.status===401?'아이디 또는 비밀번호를 확인해주세요.':e instanceof AdminError&&e.status===429?'로그인 시도가 많습니다. 1분 후 다시 시도해주세요.':'관리자 설정과 연결을 확인해주세요.')}finally{setBusy(false)}}
   const logout=async()=>{setBusy(true);try{await adminService.logout();loggedIn.current=false;requestIndex.current++;setSignedIn(false);setData(null);setSelected(null);setConfirmation(null);setView('board')}catch{notify('로그아웃하지 못했습니다. 다시 시도해주세요.')}finally{setBusy(false)}}

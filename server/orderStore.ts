@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
-import { PRODUCT, RESERVATION_UNIT_PRICE, canDeleteOrderHistory, type AdminOrder, type OperationSettings, type SubmissionPayload } from '../src/domain.ts'
+import { PRODUCT, RESERVATION_UNIT_PRICE, canDeleteOrderHistory, type AdminOrder, type Availability, type OperationSettings, type SubmissionPayload } from '../src/domain.ts'
 import type { Reservation } from './reservationLookup.ts'
 import { WaitTimeEstimator } from './waitTimeModel.ts'
 
@@ -77,7 +77,28 @@ export class OrderStore {
     } })
   }
   private adminOrder(order: StoredOrder): AdminOrder { const phone = this.decryptPhone(order); return { ...this.publicOrder(order), phone: phone || null, phoneLast4: phone ? phone.slice(-4) : null } }
-  snapshot() { this.expire(); const s = this.read(); const current = s.orders.filter(o => o.sessionId === s.settings.sessionId && !o.finishedAt); return { orders: current.map(o => this.adminOrder(o)).sort((a,b) => b.number-a.number), historyOrders: s.orders.map(o => this.adminOrder(o)).sort((a,b)=>b.number-a.number), settings: s.settings, waitTimes: this.waitTimeEstimator.snapshot(s.orders,current,this.now()) } }
+  availability(): Availability {
+    this.expire()
+    const { settings } = this.read()
+    if (!settings.active || settings.paused) return 'paused'
+    return (settings.stockTracking && settings.stock === 0) || process.env.DEMO_AVAILABILITY === 'soldOut' ? 'soldOut' : 'available'
+  }
+  snapshot(includeHistory = true) {
+    this.expire()
+    const s = this.read()
+    const current = s.orders.filter(o => o.sessionId === s.settings.sessionId && !o.finishedAt)
+    const mapped = new Map<string, AdminOrder>()
+    const adminOrder = (order: StoredOrder) => {
+      if (!mapped.has(order.id)) mapped.set(order.id, this.adminOrder(order))
+      return mapped.get(order.id)!
+    }
+    return {
+      orders: current.map(adminOrder).sort((a,b) => b.number-a.number),
+      historyOrders: includeHistory ? s.orders.map(adminOrder).sort((a,b) => b.number-a.number) : [],
+      settings: s.settings,
+      waitTimes: this.waitTimeEstimator.snapshot(s.orders,current,this.now()),
+    }
+  }
   get(id: string) { this.expire(); const order = this.read().orders.find(o => o.id === id); return order ? this.publicOrder(order) : null }
   submission(key: string) { this.expire(); const s = this.read(); const previous = s.requests[key]; if(previous?.deleted)throw new StoreError(410,'ORDER_DELETED'); const order = previous && s.orders.find(o => o.id === previous.id); return order ? this.publicOrder(order) : null }
   create(payload: SubmissionPayload, raw: string) {

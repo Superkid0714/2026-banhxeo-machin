@@ -35,7 +35,7 @@ test('deployment server serves SPA routes, assets and the order API', { timeout:
     assert.equal(asset.headers.get('content-type'), 'image/png')
     assert.equal((await fetch(`${base}/assets/missing.js`)).status, 404)
     assert.equal((await fetch(`${base}/api/missing`)).status, 404)
-    const unlinked = await fetch(`${base}/api/reservations/1027`)
+    const unlinked = await fetch(`${base}/api/reservations/001027`)
     assert.equal(unlinked.status,503)
     assert.deepEqual(await unlinked.json(),{error:'RESERVATION_LOOKUP_NOT_CONFIGURED'})
     assert.deepEqual(await (await fetch(`${base}/api/availability`)).json(), { availability: 'available' })

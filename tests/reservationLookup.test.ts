@@ -33,3 +33,34 @@ test('reservation lookup uses the server key and preserves leading zeros', async
     else process.env.ORDER_API_KEY = previous
   }
 })
+
+
+test('invalid pickup code lengths never consume an upstream lookup attempt', async () => {
+  let calls = 0
+  const transport = (async () => { calls++; throw new Error('must not call upstream') }) as typeof fetch
+  for (const code of ['', '1234', '12345', '1234567', '１２３４５６', '12a456', '../orders']) {
+    assert.deepEqual(await lookupReservation(code, transport), { status: 400, value: { error: 'INVALID_PICKUP_CODE' } })
+  }
+  assert.equal(calls, 0)
+})
+
+test('server endpoint configuration accepts HTTPS only and does not forward the secret to invalid URLs', async () => {
+  const previousKey = process.env.ORDER_API_KEY
+  const previousUrl = process.env.RESERVATION_LOOKUP_URL
+  process.env.ORDER_API_KEY = 'test-server-secret'
+  try {
+    let calls = 0
+    const reservation = { reservationId: 2, quantity: 1, pickupDate: '2026-10-07', paymentConfirmed: true }
+    const transport = (async (url) => { calls++; assert.equal(url, 'https://reservation.example.test/lookup'); return Response.json(reservation) }) as typeof fetch
+    process.env.RESERVATION_LOOKUP_URL = 'https://reservation.example.test/lookup'
+    assert.deepEqual(await lookupReservation('001234', transport), { status: 200, value: reservation })
+    for (const invalid of ['not-a-url', 'http://reservation.example.test/lookup', 'https://user:password@reservation.example.test/lookup', 'https://reservation.example.test/lookup#fragment']) {
+      process.env.RESERVATION_LOOKUP_URL = invalid
+      assert.deepEqual(await lookupReservation('001234', transport), { status: 503, value: { error: 'RESERVATION_LOOKUP_NOT_CONFIGURED' } })
+    }
+    assert.equal(calls, 1)
+  } finally {
+    if (previousKey === undefined) delete process.env.ORDER_API_KEY; else process.env.ORDER_API_KEY = previousKey
+    if (previousUrl === undefined) delete process.env.RESERVATION_LOOKUP_URL; else process.env.RESERVATION_LOOKUP_URL = previousUrl
+  }
+})

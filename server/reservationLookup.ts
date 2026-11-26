@@ -1,14 +1,17 @@
-import { RESERVATION_UNIT_PRICE } from '../src/domain.ts'
+import { RESERVATION_UNIT_PRICE, validPickupCode } from '../src/domain.ts'
 
 const lookupUrl = 'https://reservation-production-6599.up.railway.app/api/v1/orders/reservations/lookup'
 export type Reservation = { reservationId: number; quantity: number; pickupDate: string; paymentConfirmed: boolean }
 
 export async function lookupReservation(pickupCode: string, request: typeof fetch = fetch): Promise<{ status: 200; value: Reservation } | { status: number; value: { error: string } }> {
-  if (!/^\d{1,12}$/.test(pickupCode)) return { status: 400, value: { error: 'INVALID_PICKUP_CODE' } }
+  if (!validPickupCode(pickupCode)) return { status: 400, value: { error: 'INVALID_PICKUP_CODE' } }
   const key = process.env.ORDER_API_KEY
   if (!key) return { status: 503, value: { error: 'RESERVATION_LOOKUP_NOT_CONFIGURED' } }
   try {
-    const response = await request(lookupUrl, {
+    let endpoint: URL
+    try { endpoint = new URL(process.env.RESERVATION_LOOKUP_URL || lookupUrl) } catch { return { status: 503, value: { error: 'RESERVATION_LOOKUP_NOT_CONFIGURED' } } }
+    if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.hash) return { status: 503, value: { error: 'RESERVATION_LOOKUP_NOT_CONFIGURED' } }
+    const response = await request(endpoint.href, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ pickupCode }),

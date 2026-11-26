@@ -358,3 +358,47 @@ test('an uncertain SMS response does not trigger an automatic second send',async
     assert.equal(store.get(order.id)?.smsStatus,'unknown');assert.equal(attempts,1)
   } finally {store.close();names.forEach((name,i)=>{if(old[i]===undefined)delete process.env[name];else process.env[name]=old[i]})}
 })
+
+
+test('availability checks settings without decrypting archived customer data', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'festival-availability-'))
+  const file = join(dir, 'orders.sqlite'), key = 'cd'.repeat(32)
+  const previousDemo = process.env.DEMO_AVAILABILITY
+  delete process.env.DEMO_AVAILABILITY
+  const store = new OrderStore(file, () => Date.now(), key)
+  try {
+    create(store)
+    const db = new DatabaseSync(file)
+    try {
+      const state = JSON.parse(String(db.prepare('SELECT value FROM operation_state WHERE id=1').get()!.value))
+      state.orders[0].encryptedPhone = 'not-a-valid-ciphertext'
+      db.prepare('UPDATE operation_state SET value=? WHERE id=1').run(JSON.stringify(state))
+    } finally { db.close() }
+    assert.equal(store.availability(), 'available')
+    assert.throws(() => store.snapshot())
+    store.settings({ version: 1, paused: true }, 'test')
+    assert.equal(store.availability(), 'paused')
+    store.settings({ version: 2, paused: false, stockTracking: true, stock: 0 }, 'test')
+    assert.equal(store.availability(), 'soldOut')
+  } finally {
+    store.close(); rmSync(dir, { recursive: true, force: true })
+    if (previousDemo === undefined) delete process.env.DEMO_AVAILABILITY; else process.env.DEMO_AVAILABILITY = previousDemo
+  }
+})
+
+test('board snapshots omit history without losing archived orders in the default full snapshot', () => {
+  const store = new OrderStore()
+  try {
+    let archived = create(store)
+    archived = store.action(archived.id, 'pay', archived.version, false, 'test')
+    archived = store.action(archived.id, 'complete', archived.version, false, 'test')
+    store.action(archived.id, 'archive', archived.version, false, 'test')
+    const active = create(store)
+    const board = store.snapshot(false)
+    assert.deepEqual(board.historyOrders, [])
+    assert.deepEqual(board.orders.map(order => order.id), [active.id])
+    const full = store.snapshot()
+    assert.equal(full.historyOrders.length, 2)
+    assert.ok(full.historyOrders.some(order => order.id === archived.id && order.finishedAt))
+  } finally { store.close() }
+})
