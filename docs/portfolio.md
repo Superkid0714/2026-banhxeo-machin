@@ -78,6 +78,7 @@ TypeScript·운영 빌드와 도메인·복구·주문·예약·문자·모델·
 - [실제 운영 경험과 개선 분석](field-operation-changes.md): 문제·판단·대응·한계, 두 태블릿 시나리오
 - [전체 운영 기록](operations-record.md): 실적 근거·개발 연혁·예측 지표·남은 과제
 - [기술 종합](technical-reference.md): 아키텍처, 실제 SQLite 물리 ERD와 JSON 논리 관계도, 제출 복구 시퀀스, 주문 상태도, AI 파이프라인, API·동시성·보안·테스트
+- [기술 선택과 검증 근거](engineering-decisions.md): 현재 선택과 대안의 장단점, 보호 조건별 테스트, 실패 시나리오, 71% 분석 재현 코드
 - [배포 운영 절차](deployment-runbook.md): 실제 배포본·소스 차이·설정·장애·백업
 
 실제 고객 데이터·계좌·관리자 비밀번호·API 키·DB·고객 포함 화면은 포트폴리오에 첨부하지 않는다.

@@ -15,6 +15,7 @@ data/
 !docs/technical-reference.md
 !docs/deployment-runbook.md
 !docs/portfolio.md
+!docs/engineering-decisions.md
 
 # Local tooling and the previous project copy.
 .claude/
