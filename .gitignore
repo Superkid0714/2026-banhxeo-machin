@@ -3,6 +3,8 @@ dist/
 dist-server/
 data/
 .npm-cache/
+__pycache__/
+*.pyc
 *.local
 
 # Keep local notes private; share project documentation.
@@ -16,6 +18,7 @@ data/
 !docs/deployment-runbook.md
 !docs/portfolio.md
 !docs/engineering-decisions.md
+!docs/statistical-review.md
 
 # Local tooling and the previous project copy.
 .claude/
