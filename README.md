@@ -16,6 +16,7 @@
 | [전체 운영 기록과 개선 총정리](docs/operations-record.md) | 행사 합계, 개발 연혁, 문제·조치, 검증 지표, 개선 우선순위 |
 | [기술 구조와 현재 구현](docs/technical-reference.md) | 아키텍처·물리 ERD·JSON 논리 모델·시퀀스·상태도·AI 파이프라인·API·보안·테스트 |
 | [기술 선택·실패 대응·검증 근거](docs/engineering-decisions.md) | 대안과 장단점, 불변 조건·테스트 연결, 실패 시나리오, 성과 분석 재현 |
+| [운영 성과의 통계 해석](docs/statistical-review.md) | 관측 감소율·민감도·탐색 검정·독립성 한계·다음 운영의 검증 설계 |
 | [배포 상태와 운영 절차](docs/deployment-runbook.md) | 실제 배포본과 소스 차이, 설정·QR 공급·검증·장애·백업 |
 | [고객 흐름 구현](docs/implementation.md) | 현재 단계, 이전 URL 호환, 제출·입력 복구 |
 | [실제 운영 경험에 따른 개선 분석](docs/field-operation-changes.md) | 운영 중 UI·시스템 개선의 문제·원인·조치와 운영 후 점검 개선 |
