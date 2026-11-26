@@ -6,6 +6,30 @@
 
 ## 구성과 요청 경로
 
+이 문서의 도식은 코드 기준으로 작성한 GitHub Mermaid다. 실제 테이블·제약과 JSON 내부의 논리 구조를 구분하며, 아직 구현하지 않은 정규화 테이블을 현재 ERD로 표시하지 않는다.
+
+### 런타임 아키텍처
+
+```mermaid
+flowchart LR
+    A[태블릿 A 브라우저] -->|동일 출처 HTTP API| HTTP
+    B[태블릿 B 브라우저] -->|동일 출처 HTTP API| HTTP
+    subgraph Railway[Railway 단일 Node 인스턴스]
+        HTTP[HTTP 서버와 정적 파일] --> API[입력 검증과 API 라우팅]
+        API --> AUTH[관리자 세션과 Origin 검사]
+        API --> STORE[OrderStore와 트랜잭션]
+        STORE --> DB[(SQLite 영구 볼륨)]
+        STORE --> MODEL[대기시간 모델]
+        TICK[5초 주기 작업] --> SMS[문자 claim과 결과 반영]
+        SMS --> STORE
+        API --> RES[서버 전용 예약 조회]
+    end
+    RES --> EXT[외부 예약 API]
+    SMS --> SOL[Solapi API]
+```
+
+태블릿은 각각 독립된 브라우저 상태를 가진다. 데이터의 최종 기준은 공통 서버·DB이며 기기끼리 직접 동기화하지 않는다. 관리자 세션과 모델 캐시는 메모리, 주문·요청 키·문자 작업 정보는 SQLite, 미확정 고객 제출은 같은 탭의 sessionStorage에 위치한다. 외부 예약 서비스의 내부 DB 구조는 본 코드에서 확인할 수 없으므로 그 서비스의 ERD를 추정하지 않는다.
+
 React 19·TypeScript·Vite·Tailwind CSS의 고객/관리자 화면이 같은 출처의 Node.js 22 API를 호출한다. 개발·미리보기에서는 Vite 플러그인이 API 미들웨어를 연결하고, 운영에서는 `server/start.ts`를 번들한 HTTP 서버가 `dist/`와 API를 제공한다.
 
 | 계층 | 파일 | 책임 |
@@ -58,6 +82,69 @@ API 응답은 `Cache-Control: no-store`다. 관리자 API는 서버 세션을 �
 
 ## 영구 저장과 동시성
 
+### 물리 ERD와 실제 DDL
+
+실제 DB 테이블은 `operation_state` 하나이며 `id=1`인 단일 행에 JSON 문자열을 저장한다. 아래 물리 ERD에는 관계선이 없다. 별도 orders·payments·customers 테이블이나 외래 키는 현재 구현에 존재하지 않는다.
+
+```mermaid
+erDiagram
+    operation_state {
+        INTEGER id PK "CHECK id equals 1"
+        TEXT value "NOT NULL serialized State JSON"
+    }
+```
+
+```sql
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=FULL;
+PRAGMA busy_timeout=5000;
+
+CREATE TABLE IF NOT EXISTS operation_state (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    value TEXT NOT NULL
+);
+```
+
+이 DDL은 `server/orderStore.ts` 생성자와 같다. JSON 필드·주문 ID·예약 ID의 UNIQUE/FK/CHECK, JSON 유효성 제약은 DB에 선언돼 있지 않다. 업무 검증은 API·도메인·트랜잭션 내부 코드가 수행한다.
+
+### JSON 내부의 논리 관계도
+
+아래는 `value`에 직렬화한 TypeScript 객체의 포함·참조 관계다. **물리 테이블 ERD가 아니며** 키 표기도 SQL 외래 키를 뜻하지 않는다.
+
+```mermaid
+flowchart TD
+    STATE[State JSON] -->|orders 배열| ORDER[StoredOrder]
+    STATE -->|requests 키 맵| REQUEST[RequestRecord]
+    STATE -->|settings 한 객체| SETTINGS[OperationSettings]
+    STATE --> COUNTER[number와 호환 플래그]
+    ORDER -->|history 배열| EVENT[처리 이력 at label actor]
+    ORDER -->|선택 객체| QUOTE[접수 당시 waitQuote]
+    ORDER -->|내장 필드| SMSFIELDS[문자 종류 상태 lease 전달 ID]
+    REQUEST -.->|id로 주문 참조| ORDER
+    SETTINGS -.->|현재 sessionId와 비교| ORDER
+    ORDER -.->|reservationId 외부 식별자| RESERVATION[외부 예약]
+```
+
+| 논리 객체 | 주요 필드 | 관계·제약의 실제 의미 |
+| --- | --- | --- |
+| `State` | `orders`, `requests`, `number`, `settings`, `manualPaymentFlow?` | DB 한 행 전체에 직렬화. orders는 현재·과거 운영의 주문을 포함 |
+| `StoredOrder` | `id`, `number`, `productId`, `quantity`, `unitPrice`, `total`, `status`, `version`, `sessionId` | UUID와 순번은 서버 생성. 설정의 현재 sessionId와 일치하는 주문을 보드용으로 선택 |
+| 주문 시각·결제 | `createdAt`, `updatedAt`, `deadline`, `paymentWindowMinutes`, `paymentStatus`, `pickupReady?`, `finishedAt?` | 시각은 ISO 문자열. 보관 시각과 첫 준비·수령완료 이력을 구분 |
+| 연락·예약 | `notificationMethod`, `maskedPhone`, `encryptedPhone`, `reservationId?`, `stockReserved` | 원문 번호는 암호화 저장. 예약 ID는 외부 식별자이며 로컬 FK가 아님 |
+| `history[]` | `at`, `label`, `actor` | 주문 내부에 여러 이벤트. 별도 eventId 테이블이나 완전한 감사 원장은 아님 |
+| `RequestRecord` | 맵 키, `hash`, `id`, `deleted?` | 키는 현장 requestId 또는 `reservation:<id>`. 주문별 복구 키를 보관하며 삭제 후 참조는 tombstone으로 남을 수 있음 |
+| `OperationSettings` | `stock`, `stockTracking`, `paused`, `active`, `retentionMinutes`, `sessionId`, `version` | 전역 설정 1개. 이전 운영 세션의 설정 테이블을 별도 보관하지 않음 |
+| 문자 내부 필드 | `smsKind?`, `smsStatus`, `smsLease?`, `smsStartedAt?`, `smsMessageId?`, `smsGroupId?` | 주문에 내장한 작업 상태. 독립 SMS outbox 테이블은 없음 |
+| `waitQuote?` | `minutes`, `at` | 당시 예측 0~1개. 원문 quote는 응답에서 제외, 완료 뒤 운영 오차 계산에 사용 |
+
+`phone`·`phoneLast4`는 인증된 관리자 조회 시 복호화해 추가하는 응답 필드다. 모델 계수·세션 토큰도 operation_state에 별도 엔티티로 저장하지 않는다. 처리 이력은 주문 삭제 시 같이 없어지므로 모든 변경을 불변 보존하는 event sourcing 구조로 표현하지 않는다.
+
+### 저장 방식의 선택과 비용
+
+현재 구조는 작은 단일 운영 서버에서 주문·요청 키·재고를 하나의 트랜잭션으로 갱신할 수 있다. 반면 조회·저장 시 전체 상태 JSON을 읽고 쓰며, DB 인덱스로 날짜·상태·예약을 직접 검색하지 않는다. 논리 관계의 무결성도 애플리케이션 검증에 의존한다. 이 특성을 대규모 서비스에 최적화된 관계형 설계라고 설명하지 않는다.
+
+정규화는 향후 규모 확대 과제다. 구현한다면 주문·이력·요청 키·문자 작업·운영 설정의 분리, 예약/요청 키의 유일성, 삭제 tombstone 보존, 기존 JSON 이관·합계 대조·롤백을 함께 설계해야 한다. 이것은 **향후 방향**이며 위 물리 ERD에 미리 반영하지 않는다.
+
 Node 내장 SQLite에 `operation_state` 한 행의 JSON으로 주문, 요청 키 매핑, 번호, 설정을 저장한다. WAL 모드를 사용하고 `BEGIN IMMEDIATE` 트랜잭션으로 읽기·변경·저장을 묶는다. 현재 구현은 주문마다 정규화한 행·인덱스로 검색하는 구조가 아니다.
 
 주문에는 ID·번호·수량·금액·상태·결제·문자·버전·생성/수정 시각·처리 이력·운영 세션 등이 있다. 내부에 암호화된 전화번호, 문자 lease·전달 ID, 접수 당시 예측 quote를 보관한다. 운영 설정에는 active·paused·재고 추적·수량·결제 제한·sessionId·version이 있다.
@@ -80,6 +167,36 @@ Node 내장 SQLite에 `operation_state` 한 행의 JSON으로 주문, 요청 키
 
 ## 제출 복구와 장애 경계
 
+### 제출·응답 유실 복구 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant C as 고객 브라우저
+    participant J as 같은 탭 저널
+    participant A as 주문 API
+    participant D as SQLite
+    C->>J: 불변 payload와 requestId 저장
+    C->>A: GET submissions/requestId
+    alt 기존 주문 존재
+        A-->>C: 기존 주문 반환
+    else 404로 부재 확인
+        C->>A: POST orders 같은 requestId
+        A->>D: BEGIN IMMEDIATE
+        A->>D: 키·본문·가격·판매·재고 재검증과 저장
+        D-->>A: COMMIT
+        A-->>C: 생성 또는 기존 주문 응답
+    else 조회 실패 또는 시간 초과
+        A--xC: 결과 불명확
+        Note over C,J: 저널 유지하고 새 주문 생성 금지
+    end
+    opt 성공 응답 확인
+        C->>J: 원문 제출값을 서버 Order로 교체
+        C->>C: 초안 정리 후 홈 이동
+    end
+```
+
+POST 저장 직후 응답만 유실돼도 재시도 때 같은 키의 기존 주문을 찾는다. 조회 실패를 404와 동일하게 처리하지 않는 것이 경계다. 저장 전에 API도 입력을 검증하고, 트랜잭션 안에서는 변할 수 있는 상태·중복·가격을 다시 확인한다.
+
 1. 제출 전에 불변 payload·requestId를 같은 탭의 저널에 기록한다. 저장 실패 시 API 호출을 진행하지 않는다.
 2. 재시도는 먼저 요청 키로 기존 주문을 찾는다. 404로 부재가 확인된 경우에만 같은 키로 생성한다.
 3. 조회 오류·시간 초과를 주문 부재로 해석하지 않는다. 불명확한 상태에서는 새 키로 중복 접수를 만들지 않는다.
@@ -89,6 +206,25 @@ Node 내장 SQLite에 `operation_state` 한 행의 JSON으로 주문, 요청 키
 
 ## 문자 파이프라인
 
+### 주문 상태와 안내의 연결
+
+```mermaid
+stateDiagram-v2
+    [*] --> paymentPending: 현장 접수
+    [*] --> cooking: 예약 검증 후 접수
+    paymentPending --> cooking: 입금 확인 / 결제 문자 요청
+    cooking --> completed: 수령완료 / 픽업 문자 요청
+    completed --> archived: 보관 / finishedAt 기록
+    paymentPending --> expired: 제한시간 설정 시 만료
+    expired --> paymentPending: 조건 검증 후 복원
+    paymentPending --> removed: 취소 / 삭제
+    cooking --> removed: 취소 / 삭제
+```
+
+`archived`·`removed`는 설명용 노드이며 실제 `OrderStatus` enum 값이 아니다. 보관은 status가 completed인 채 finishedAt을 기록하고 취소는 주문 객체를 삭제한다. 과거 accepted·ready·cancelled와 환불 상태의 호환 분기는 본 도식에서 생략했으며 코드에서 유지한다. 이력 영구 삭제도 별도 권한·조건 확인 동작이다.
+
+문자 요청은 실제 전달 완료와 다르다. 특히 completed가 픽업 요청과 연결되므로 해당 이벤트를 물리적 고객 수령 시점이라고 단정하지 않는다.
+
 결제 확인 시 payment 안내, 준비·수령완료 시 ready 픽업 안내를 예약한다. 결제 문자가 아직 처리 중이면 그 처리가 끝난 뒤 픽업 안내를 이어서 예약한다. 조리중·수령완료 등 허용된 상태에서 관리자 재발송을 지원한다.
 
 5초 주기 작업이 pending 한 건을 claim해 임의 lease를 부여하고 sending으로 전환한다. 같은 프로세스의 작업 중첩도 막는다. 외부 API 호출은 DB 트랜잭션 밖에서 수행하고, 일치하는 lease의 결과만 저장한다. 오래된 sending은 60초 뒤 unknown으로 전환한다.
@@ -96,6 +232,25 @@ Node 내장 SQLite에 `operation_state` 한 행의 JSON으로 주문, 요청 키
 Solapi가 접수한 submitted와 전달 확인 sent를 구분한다. 실패 failed·불명 unknown은 관리자에게 표시한다. pending·sending·submitted 중 재발송을 막고 불명 결과를 무조건 자동 재전송하지 않는다. 외부 호출 타임아웃은 10초다. DB와 외부 문자 전송 사이에 분산 트랜잭션이 없으므로 모든 장애에서 정확히 한 번 전달을 보장하는 구조는 아니다.
 
 ## 대기시간 모델과 한계
+
+```mermaid
+flowchart LR
+    DB[주문 수량과 시간 이력] --> FILTER[취소·만료와 부적합 시간 제외]
+    FILTER --> SAMPLE[접수 시 앞선 수량 재구성 / 최신 최대 80건]
+    SAMPLE --> CHECK{표본 signature 변경}
+    CHECK -->|변경| FIT[최근성 가중 비음수 회귀 학습]
+    CHECK -->|동일| CACHE[메모리 모델 재사용]
+    FIT --> CACHE
+    QUEUE[현재 미완료 음식 수량 / 신규 수량] --> PREDICT[대표 시간 예측]
+    CACHE --> PREDICT
+    PREDICT --> UI[관리자 한 줄 안내]
+    PREDICT --> QUOTE[접수 당시 quote 내부 저장]
+    QUOTE --> EVAL[완료 후 실제 소요시간과 비교]
+    EVAL --> METRIC[최근 20건 운영 오차]
+    SAMPLE --> BACKTEST[접수 이전 완료 표본만 사용한 순차 검증]
+```
+
+quote와 모델 계수는 다른 값이다. quote는 주문과 함께 DB에 저장하고 계수는 이력으로 재구성해 메모리에 유지한다. 운영 오차를 계산하는 것과 학습 표본 갱신 시 회귀 모델을 다시 맞추는 것도 구분한다. 관련 자료 수집은 서버에서 수행하며 외부 AI 호출을 사용하지 않는다.
 
 비음수·최근성 가중 ridge 회귀로 `기본 시간 + 앞선 음식 수량의 영향 + 자기 주문 수량의 영향`을 학습한다. 입력 벡터는 `[1, aheadUnits / 10, quantity]`다. 앞선 주문은 접수 시점에 아직 준비·완료되지 않은 주문의 음식 수량으로 재구성한다.
 

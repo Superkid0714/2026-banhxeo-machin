@@ -14,7 +14,7 @@
 | --- | --- |
 | [포트폴리오 요약](docs/portfolio.md) | 개인 개발 역할·기여, 핵심 문제 해결, 운영 결과와 배운 점 |
 | [전체 운영 기록과 개선 총정리](docs/operations-record.md) | 행사 합계, 개발 연혁, 문제·조치, 검증 지표, 개선 우선순위 |
-| [기술 구조와 현재 구현](docs/technical-reference.md) | 화면·API·DB·동시성·복구·문자·AI·보안·테스트 |
+| [기술 구조와 현재 구현](docs/technical-reference.md) | 아키텍처·물리 ERD·JSON 논리 모델·시퀀스·상태도·AI 파이프라인·API·보안·테스트 |
 | [배포 상태와 운영 절차](docs/deployment-runbook.md) | 실제 배포본과 소스 차이, 설정·QR 공급·검증·장애·백업 |
 | [고객 흐름 구현](docs/implementation.md) | 현재 단계, 이전 URL 호환, 제출·입력 복구 |
 | [실제 운영 경험에 따른 개선 분석](docs/field-operation-changes.md) | 운영 중 UI·시스템 개선의 문제·원인·조치와 운영 후 점검 개선 |
